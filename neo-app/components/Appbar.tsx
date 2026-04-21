@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LoginButton from "./LoginButton";
 import SignUpButton from "./SignUpButton";
+import AirflowRedirectButton from "./AirflowRedirectButton";
 
 const NAV = [
   { label: "Dashboard",   href: "/" },
@@ -78,8 +79,10 @@ export default function Appbar() {
               >
                 {label}
               </Link>
+              
             );
           })}
+        <AirflowRedirectButton></AirflowRedirectButton>
         </nav>
 
         {/* Auth Buttons */}
