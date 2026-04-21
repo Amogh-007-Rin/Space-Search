@@ -1,6 +1,6 @@
 x-airflow-common:
   &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1}
+  build: ./airflow
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -63,6 +63,34 @@ services:
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: airflow
       _AIRFLOW_WWW_USER_PASSWORD: airflow
+
+  neo-app:
+    build:
+      context: ./neo-app
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://mlops:password123@postgres:5432/mlops
+      NEXTAUTH_SECRET: neo-prediction-mlops-secret-2026
+      NEXTAUTH_URL: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-server:
+    build: ./api-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models
+      - ./Dataset:/Dataset
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
