@@ -1,0 +1,2327 @@
+================================================================================
+
+        SPACE SEARCH: AN END-TO-END MLOPS PLATFORM FOR NEAR-EARTH OBJECT
+                     HAZARD CLASSIFICATION AND MISS DISTANCE
+                              PREDICTION AT SCALE
+
+================================================================================
+
+                            RESEARCH PAPER
+                          MLOps Module Assessment
+
+                              Submitted by:
+                           Amogh (Amogh-007-Rin)
+
+                              April 2026
+
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABSTRACT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This paper presents Space Search, a production-grade Machine Learning Operations
+(MLOps) platform engineered to automate the detection of potentially hazardous
+Near-Earth Objects (NEOs) using NASA's publicly available asteroid dataset. The
+system addresses two complementary predictive tasks: a binary classification
+problem determining whether an asteroid poses a hazard to Earth, and a regression
+problem estimating the asteroid's miss distance in kilometres. The platform
+encompasses the complete machine learning lifecycle — from raw data ingestion and
+exploratory analysis through feature engineering, model training, cross-validation,
+hyperparameter optimisation, artifact export, and real-time serving — orchestrated
+by Apache Airflow across seven modular directed acyclic graphs (DAGs).
+
+Working on a dataset of 90,836 NASA-catalogued asteroid records, the system
+applies SMOTE-augmented stratified splits, log-transform feature engineering, and
+Optuna-driven Bayesian hyperparameter optimisation to produce a RandomForest
+classifier achieving a weighted F1-score of 0.9039 and AUC-ROC of 0.9145, and a
+Gradient Boosting regressor with an R² of 0.1657 on the held-out test partition.
+Trained artifacts are served through a FastAPI REST interface offering ten
+endpoints for single and batch prediction, dataset exploration, and model
+introspection. A Next.js web application provides an interactive frontend for
+non-technical stakeholders. The entire stack is containerised with Docker Compose,
+ensuring fully reproducible deployments across environments.
+
+The primary contributions of this work are: (1) a rigorous, leakage-free data
+preprocessing pipeline enforcing strict separation of fitting and transformation
+stages; (2) a modular DAG architecture that isolates each pipeline concern for
+independent rerunability; (3) a systematic model selection process combining
+cross-validation with sealed test-set evaluation; (4) Optuna TPE-based
+hyperparameter search; and (5) a production-ready serving layer with typed
+validation, batch support, and on-the-fly feature engineering.
+
+Keywords: MLOps, Near-Earth Objects, hazard classification, miss distance
+prediction, Apache Airflow, FastAPI, Next.js, Docker, SMOTE, Optuna, Gradient
+Boosting, Random Forest, hyperparameter optimisation.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TABLE OF CONTENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1.  Introduction
+  2.  Background and Related Work
+        2.1  Near-Earth Object Hazard Assessment
+        2.2  Machine Learning for Astronomical Classification
+        2.3  MLOps: Principles and Tooling
+        2.4  Class Imbalance in Safety-Critical Domains
+  3.  System Architecture
+        3.1  Architectural Overview
+        3.2  Component Interaction and Data Flow
+        3.3  Design Rationale
+  4.  Dataset
+        4.1  Dataset Description and Provenance
+        4.2  Raw Feature Set
+        4.3  Exploratory Data Analysis
+        4.4  Class Distribution and Imbalance
+  5.  Data Pipeline and Preprocessing
+        5.1  Pipeline Orchestration with Apache Airflow
+        5.2  DAG 0 — CSV to PostgreSQL Ingestion
+        5.3  DAG 1 — Dataset Preprocessing
+              5.3.1  Column Removal and Leakage Prevention
+              5.3.2  Feature Engineering
+              5.3.3  Stratified Train-Validation-Test Split
+              5.3.4  SMOTE Oversampling
+              5.3.5  Feature Scaling
+        5.4  DAG 2 — Feature Transformer
+  6.  Machine Learning Methodology
+        6.1  Problem Formulation
+        6.2  Classification Models
+              6.2.1  Logistic Regression
+              6.2.2  Random Forest Classifier
+              6.2.3  Gradient Boosting Classifier
+        6.3  Regression Models
+              6.3.1  Linear Regression
+              6.3.2  Random Forest Regressor
+              6.3.3  Gradient Boosting Regressor
+        6.4  Evaluation Metrics
+        6.5  DAG 3 — Baseline Model Training
+        6.6  DAG 4 — Model Selection via Test-Set Evaluation
+        6.7  Cross-Validation Strategy
+  7.  Hyperparameter Optimisation
+        7.1  Optuna and Tree-Structured Parzen Estimator
+        7.2  Search Space Definition
+        7.3  DAG 5 — Hyperparameter Tuning Execution
+        7.4  Tuning Outcome
+  8.  Artifact Management
+        8.1  DAG 6 — Model Extractor
+        8.2  Artifact Inventory
+        8.3  Smoke Testing
+  9.  Model Performance and Results
+        9.1  Classification Results
+        9.2  Regression Results
+        9.3  Discussion of Regression R²
+  10. API Server Design and Implementation
+        10.1  FastAPI Framework Selection
+        10.2  Application Lifecycle and Artifact Loading
+        10.3  Inference Pipeline
+        10.4  Endpoint Catalogue
+        10.5  Input Validation and Error Handling
+        10.6  CORS and Cross-Origin Policy
+  11. Web Application
+        11.1  Technology Stack and Rationale
+        11.2  Application Pages and Features
+        11.3  Typed API Client
+        11.4  Authentication
+        11.5  Database Access via Prisma
+  12. Database Architecture
+        12.1  Schema Design
+        12.2  Idempotent Ingestion
+        12.3  ML Feature Store Table
+  13. Infrastructure and Containerisation
+        13.1  Docker Compose Service Topology
+        13.2  Custom Airflow Image
+        13.3  API Server Image
+        13.4  Next.js Multi-Stage Build
+        13.5  Volume Strategy and Data Sharing
+        13.6  Health Checks and Service Dependencies
+        13.7  Nginx Reverse Proxy and Unified Entry Point
+  14. MLOps Principles Applied
+        14.1  Reproducibility
+        14.2  Data Leakage Prevention
+        14.3  Pipeline Modularity and Rerunability
+        14.4  Sealed Test Set Protocol
+        14.5  Artifact Versioning and Traceability
+        14.6  Smoke Testing and Deployment Validation
+  15. Limitations and Future Work
+  16. Conclusion
+  17. References
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. INTRODUCTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The detection and characterisation of Near-Earth Objects (NEOs) — asteroids and
+comets whose orbital trajectories bring them into close proximity with Earth —
+constitutes one of the most consequential problems in planetary defence. NASA's
+Centre for Near Earth Object Studies (CNEOS) maintains a continuously updated
+catalogue of over 30,000 tracked NEOs, each characterised by a set of orbital and
+physical parameters. Among these, a subset are formally designated as Potentially
+Hazardous Asteroids (PHAs) based on criteria combining orbital proximity and
+estimated size. The accurate and timely automated classification of incoming
+objects as hazardous or benign, alongside an estimate of their closest approach
+distance, is of clear scientific and societal importance.
+
+From a machine learning perspective, this problem presents several characteristic
+challenges that make it an instructive case study for applied MLOps: a significant
+class imbalance between hazardous and safe objects, continuous-valued targets
+spanning multiple orders of magnitude requiring careful transformation, and the
+necessity of a production system that can serve predictions reliably after an
+automated training cycle.
+
+Machine Learning Operations (MLOps) is the discipline concerned with streamlining
+the end-to-end lifecycle of machine learning systems — from data acquisition
+through model training, validation, deployment, and monitoring — with the same
+engineering rigour applied to software systems. Where traditional data science
+treats model training as a one-off analytical exercise, MLOps treats it as a
+repeatable, automated engineering process. Key concerns of MLOps include
+reproducibility, data and model versioning, automated pipeline orchestration,
+leakage prevention, and production-grade serving.
+
+This paper presents Space Search, a system designed from first principles to
+embody these MLOps concerns while solving the NEO hazard prediction task. The
+system is composed of five integrated layers: (1) an Apache Airflow orchestration
+layer running seven modular DAGs; (2) a PostgreSQL relational database storing
+both raw and engineered data; (3) two trained and tuned machine learning models
+with their associated preprocessing artifacts; (4) a FastAPI REST server exposing
+ten endpoints for prediction and data access; and (5) a Next.js web application
+providing an interactive user interface for exploration and prediction. All
+components are containerised via Docker Compose, ensuring that the system can be
+reproduced and deployed from a single command on any host with Docker installed.
+
+The remainder of this paper is organised as follows. Section 2 reviews the
+relevant background literature on NEO hazard assessment, ML-based astronomical
+classification, and MLOps tooling. Section 3 describes the overall system
+architecture. Sections 4 and 5 detail the dataset and preprocessing pipeline
+respectively. Sections 6 and 7 describe the machine learning methodology and
+hyperparameter optimisation strategy. Sections 8 and 9 cover artifact management
+and model performance. Sections 10 through 13 describe the API server, web
+application, database architecture, and infrastructure. Section 14 reflects on
+the MLOps principles applied throughout. Section 15 identifies limitations and
+future directions, and Section 16 concludes.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. BACKGROUND AND RELATED WORK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1  Near-Earth Object Hazard Assessment
+────────────────────────────────────────
+
+A Near-Earth Object is formally defined as any asteroid or comet whose orbit
+brings it within 1.3 astronomical units (AU) of the Sun. Among NEOs, the
+designation Potentially Hazardous Asteroid (PHA) is applied to objects satisfying
+two criteria: an orbit that comes within 0.05 AU of Earth's orbit, and an absolute
+magnitude of H ≤ 22, corresponding to a diameter of approximately 140 metres or
+larger. Objects of this size or greater are capable of regional to continental
+destruction on impact.
+
+NASA's primary hazard screening tools include Sentry and Scout, automated
+computational systems that project orbital trajectories forward in time and
+calculate cumulative impact probabilities. The Torino Scale and Palermo Technical
+Impact Hazard Scale provide standardised frameworks for communicating impact risk
+to the public and the scientific community respectively. These systems rely on
+precise astrometric measurements and numerical orbital propagation; they do not
+employ machine learning.
+
+The present work takes a complementary, data-driven approach: rather than
+propagating orbits numerically, it asks whether the physical and kinematic
+characteristics of an asteroid — its diameter, velocity, miss distance, and
+absolute magnitude — are predictive of its hazardous classification as recorded
+in the historical NASA catalogue. This is a retrospective classification task
+rather than a forward-looking orbital simulation, and it is appropriate for
+demonstrating MLOps methodology on a rich, well-curated dataset.
+
+2.2  Machine Learning for Astronomical Classification
+──────────────────────────────────────────────────────
+
+Machine learning has been applied extensively to astronomical classification
+problems. Early work by Djorgovski et al. (2001) applied neural networks to star-
+galaxy separation from photometric survey data. More recent applications include
+the use of random forests for photometric redshift estimation (Carliles et al.,
+2010), gradient boosting for supernova classification (Möller et al., 2016), and
+deep learning for morphological galaxy classification (Dieleman et al., 2015).
+
+For NEO classification specifically, tree-based ensemble methods have demonstrated
+strong performance on tabular orbital element datasets due to their ability to
+model non-linear feature interactions without requiring the distributional
+assumptions of linear models. Random forests and gradient boosting machines are
+the de facto standard for tabular data in competitive machine learning benchmarks
+(Grinsztajn et al., 2022), and this empirical evidence informed the model family
+selection in the present work.
+
+2.3  MLOps: Principles and Tooling
+────────────────────────────────────
+
+The term MLOps was formalised in the machine learning community around 2018,
+drawing from the earlier DevOps movement's emphasis on automation, continuous
+integration, and infrastructure as code. Sculley et al. (2015) identified the
+concept of "technical debt" in ML systems — the hidden costs of data dependencies,
+pipeline complexity, and undeclared configuration — which motivated the need for
+disciplined MLOps practices.
+
+A mature MLOps stack typically includes components for pipeline orchestration
+(Apache Airflow, Prefect, Kubeflow), experiment tracking (MLflow, Weights &
+Biases), model registries, feature stores, and deployment infrastructure. The
+present work implements a self-contained subset of this stack: Airflow for
+orchestration, PostgreSQL as a lightweight feature store, joblib for artifact
+serialisation, and Docker for deployment consistency. This scope was chosen to
+balance engineering completeness with the educational objectives of the module.
+
+Apache Airflow, first open-sourced by Airbnb in 2015 and now a top-level Apache
+Software Foundation project, models pipelines as Directed Acyclic Graphs (DAGs)
+of tasks with explicit dependency relationships. Its Python-native DAG definition
+language, rich operator ecosystem, and web UI for monitoring make it well-suited
+to data engineering and ML pipeline orchestration. Airflow 2.x introduced the
+TaskFlow API, improved scheduler performance, and the LocalExecutor mode used in
+this work, which executes tasks in subprocesses on a single machine.
+
+Optuna (Akiba et al., 2019) is a hyperparameter optimisation framework that
+implements the Tree-structured Parzen Estimator (TPE) algorithm for Bayesian
+search, alongside pruning strategies that terminate unpromising trials early. It
+has become a widely adopted alternative to grid search and random search for its
+efficiency in high-dimensional hyperparameter spaces.
+
+2.4  Class Imbalance in Safety-Critical Domains
+─────────────────────────────────────────────────
+
+Class imbalance — where one class significantly outnumbers another — is a
+pervasive challenge in safety-critical classification tasks including fraud
+detection, medical diagnosis, and, as in the present work, hazard detection. A
+naive classifier trained on imbalanced data that predicts the majority class for
+all examples achieves high accuracy while providing no safety signal.
+
+SMOTE (Synthetic Minority Over-sampling Technique), introduced by Chawla et al.
+(2002), generates synthetic minority-class examples by interpolating between
+existing minority samples in the feature space. For each minority sample, SMOTE
+selects k nearest neighbours (k=5 by default) and generates new points along the
+line segments connecting them. This forces the classifier to learn a more
+discriminative decision boundary for the minority class without simply duplicating
+existing samples as naive oversampling does.
+
+A critical methodological requirement is that SMOTE be applied exclusively to the
+training partition, with validation and test sets left at their natural
+distribution. Inflating the validation or test sets with synthetic samples would
+produce metrics that overestimate real-world performance — a form of data leakage
+that several published studies have been criticised for committing.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. SYSTEM ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.1  Architectural Overview
+────────────────────────────
+
+Space Search is organised into five distinct layers, each with a well-defined
+responsibility, communicating through persistent shared storage and network
+interfaces:
+
+  Layer 1 — Orchestration (Apache Airflow)
+    Seven DAGs manage the end-to-end ML pipeline from raw CSV ingestion through
+    to artifact export. The scheduler monitors DAG state and triggers task
+    execution; the webserver provides a monitoring UI.
+
+  Layer 2 — Data Storage (PostgreSQL 16)
+    A relational database stores two application tables: NearEarthObject (raw
+    imported records) and NearEarthObjectNewFeatures (engineered ML features).
+    A third table, Admin, supports frontend authentication.
+
+  Layer 3 — ML Artifacts (filesystem)
+    Intermediate pipeline state is written to Dataset/Processed/ (CSV splits
+    and scalers) and Dataset/mlops_pipeline/ (baseline models and metrics).
+    Final production artifacts are written to models/artifacts/. These
+    directories are mounted as shared volumes accessible to both Airflow
+    and the API server.
+
+  Layer 4 — Serving (FastAPI)
+    A Python REST API server loads trained artifacts at startup and exposes ten
+    endpoints for prediction, dataset access, and model introspection. It
+    replicates the exact feature engineering logic from the training pipeline
+    to ensure inference-time feature consistency.
+
+  Layer 5 — User Interface (Next.js)
+    A TypeScript web application provides a browser-based interface for
+    exploring the NEO dataset, submitting predictions, and inspecting model
+    performance metrics. It communicates with the API server via a typed
+    HTTP client.
+
+3.2  Component Interaction and Data Flow
+─────────────────────────────────────────
+
+The system's primary data flow proceeds as follows:
+
+  1. Raw Data Ingestion: The NASA neo.csv file (90,836 records) is mounted into
+     the Airflow container and loaded into PostgreSQL by DAG 0. The same file is
+     independently loaded into memory by the API server at startup for dataset
+     query endpoints.
+
+  2. Preprocessing: DAG 1 reads neo.csv directly, applies feature engineering,
+     stratified splitting, SMOTE, and StandardScaler, and writes twelve CSV files
+     and two scaler artifacts to Dataset/Processed/.
+
+  3. Feature Storage: DAG 2 reads the processed CSVs and writes the engineered
+     feature records back to the NearEarthObjectNewFeatures table in PostgreSQL,
+     creating a queryable ML feature store.
+
+  4. Training: DAG 3 reads the processed CSV splits, trains six baseline models
+     (three classifiers, three regressors), and writes model artifacts and metrics
+     to Dataset/mlops_pipeline/.
+
+  5. Selection: DAG 4 evaluates all baseline models on the sealed test set and
+     writes model_selection.json identifying the best classifier and regressor.
+
+  6. Tuning: DAG 5 runs Optuna HPO on the selected models, producing tuned
+     model artifacts and updated test metrics.
+
+  7. Export: DAG 6 copies the tuned artifacts to models/artifacts/, writes
+     model_metadata.json, and validates the pipeline with a smoke test.
+
+  8. Serving: The FastAPI server mounts models/artifacts/ and serves predictions
+     through REST endpoints, reconstructing the training-time feature engineering
+     on each incoming request.
+
+  9. Presentation: The Next.js frontend fetches data from the API server and
+     renders it for the end user.
+
+3.3  Design Rationale
+──────────────────────
+
+Several key architectural decisions shaped the final design:
+
+  Filesystem over Message Queue: Intermediate artifacts are persisted to disk
+  rather than passed between DAGs via an in-memory message broker. This provides
+  natural checkpointing — if any DAG fails, it can be rerun from its own starting
+  state without requiring preceding DAGs to re-execute. It also makes intermediate
+  results inspectable by data scientists without rerunning the pipeline.
+
+  Inline CSV Loading in the API Server: Rather than querying PostgreSQL for
+  dataset endpoints, the API server loads neo.csv into a Pandas DataFrame at
+  startup and serves all dataset queries from memory. For a 9 MB, 90,836-row
+  dataset this is negligible in memory terms and eliminates database round-trip
+  latency for the most frequent endpoint operations.
+
+  DAG Granularity: Each DAG maps to exactly one conceptual pipeline stage.
+  Finer granularity (one task per action) would have increased overhead without
+  improving checkpointing. Coarser granularity (one monolithic DAG) would have
+  made failures harder to diagnose and rerunning from a midpoint impossible.
+
+  Separation of Preprocessing and Feature Storage: DAG 1 writes CSV files for
+  direct ML consumption; DAG 2 separately writes features to PostgreSQL for
+  operational queryability. These serve different consumers and should not be
+  coupled into a single DAG.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. DATASET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.1  Dataset Description and Provenance
+─────────────────────────────────────────
+
+The dataset used in this work is NASA's Near-Earth Object dataset, made publicly
+available through NASA's open data platform. It contains 90,836 records, each
+representing a unique asteroid tracked and catalogued by CNEOS. Each record
+encodes the asteroid's physical characteristics (diameter estimates, absolute
+magnitude) and kinematic characteristics (closest approach velocity, miss
+distance) as observed at the time of closest Earth approach. The dataset is
+provided as a single CSV file of approximately 9 megabytes with zero missing
+values across all columns.
+
+The dataset is static — it represents a snapshot of the NASA catalogue rather
+than a continuously updating stream — which simplifies the MLOps pipeline by
+eliminating the need for incremental ingestion or drift monitoring. This is
+appropriate for the educational context of this work but would be a significant
+limitation in a live production deployment.
+
+4.2  Raw Feature Set
+─────────────────────
+
+The dataset contains ten columns as described below:
+
+  Column                  Type      Description
+  ──────────────────────  ────────  ─────────────────────────────────────────
+  id                      integer   NASA internal asteroid identifier (PK)
+  name                    string    Asteroid name/designation (e.g., 162635)
+  est_diameter_min        float     Minimum estimated diameter (km)
+  est_diameter_max        float     Maximum estimated diameter (km)
+  relative_velocity       float     Velocity relative to Earth at approach (km/h)
+  miss_distance           float     Closest approach distance from Earth centre (km)
+  orbiting_body           string    Body being orbited (always "Earth" in dataset)
+  sentry_object           boolean   Whether flagged in NASA Sentry impact monitor
+  absolute_magnitude      float     Absolute magnitude H (intrinsic brightness)
+  hazardous               boolean   PHA status — the primary classification target
+
+4.3  Exploratory Data Analysis
+───────────────────────────────
+
+The initial exploratory analysis (Exploration.ipynb) confirmed the following
+structural properties of the dataset:
+
+  Completeness: All 90,836 rows are complete across all ten columns — zero null
+  values. This eliminates the need for imputation and simplifies the preprocessing
+  pipeline considerably.
+
+  Data Types: Five float64 columns contain continuous numeric features; one int64
+  column encodes the identifier; two boolean columns encode binary flags; two
+  string columns carry textual identifiers.
+
+  Right-Skewed Distributions: The summary statistics (df.describe()) reveal
+  extreme right skew in the continuous numeric features:
+
+    est_diameter_min  ranges from 0.0006 km to 37.89 km  (median: 0.048 km)
+    est_diameter_max  ranges from 0.0014 km to 84.73 km  (median: 0.108 km)
+    relative_velocity ranges from 203 km/h to 236,990 km/h (median: 44,190)
+    miss_distance     ranges from 6,745 km to 74.8M km   (median: 37.8M km)
+
+  The ratio of maximum to minimum values exceeds four orders of magnitude in
+  several features. This distributional property motivates the log-transform
+  engineering applied in DAG 1.
+
+  Constant-Value Column: All 90,836 records have orbiting_body = "Earth",
+  confirming zero variance in this column. Including it as a feature would
+  add dimensionality without predictive contribution.
+
+  Absolute Magnitude: The absolute_magnitude column (range: 9.23 to 33.20,
+  median: 23.70) exhibits a relatively well-behaved unimodal distribution
+  and does not require transformation.
+
+4.4  Class Distribution and Imbalance
+───────────────────────────────────────
+
+The target column (hazardous) has the following distribution in the full dataset:
+
+  Class           Count     Proportion
+  ──────────────  ────────  ──────────
+  Non-hazardous   ~74,000   ~81.5%
+  Hazardous       ~16,800   ~18.5%
+
+This approximately 4:1 imbalance ratio is substantial enough to bias a naive
+classifier toward the majority class but is not so extreme as to make the
+classification problem intractable. The SMOTE oversampling strategy described in
+Section 5.3.4 addresses this imbalance at the training stage. All reported
+evaluation metrics (F1-weighted, AUC-ROC) are chosen to be informative under
+class imbalance, as discussed in Section 6.4.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. DATA PIPELINE AND PREPROCESSING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.1  Pipeline Orchestration with Apache Airflow
+─────────────────────────────────────────────────
+
+Apache Airflow 2.7.1 is deployed in LocalExecutor mode, in which the scheduler
+dispatches task instances as subprocesses on a single host machine. This is
+sufficient for the single-node deployment described in this paper. Each pipeline
+stage is implemented as a separate DAG, with tasks defined as PythonOperator
+instances whose callables import their dependencies at execution time rather than
+at import time. This deferred import pattern is an Airflow best practice that
+prevents DAG parse failures due to missing packages and reduces the memory
+footprint of the scheduler process.
+
+The Airflow metadata database is co-hosted with the application data in the same
+PostgreSQL instance but in a separate schema. The AIRFLOW_CONN_NEO_POSTGRES
+environment variable is set via Docker Compose to pre-configure the database
+connection without requiring manual setup through the Airflow UI.
+
+All DAGs are configured with schedule="@once", catchup=False, and
+start_date=datetime(2024, 1, 1). The @once schedule means each DAG runs exactly
+once when manually triggered and does not repeat on a cron schedule. Disabling
+catchup prevents Airflow from attempting to execute historical runs for dates
+between start_date and the current date.
+
+5.2  DAG 0 — CSV to PostgreSQL Ingestion
+──────────────────────────────────────────
+
+File: airflow/dags/csv_to_postgres_dag.py
+
+The csv_to_postgres DAG implements the initial data ingestion step. It loads
+neo.csv from the mounted dataset volume (/opt/airflow/dataset/Raw/neo.csv)
+using pandas, normalises column names to lowercase, casts boolean columns
+(sentry_object, hazardous) from string representations to native Python booleans,
+and performs a bulk upsert into the NearEarthObject table.
+
+The upsert uses PostgreSQL's ON CONFLICT (id) DO UPDATE syntax, which is
+idempotent: running the DAG a second time updates all rows to their current values
+rather than failing on duplicate key violations. This design choice is significant
+from an MLOps perspective — it means the ingestion step can be safely rerun
+following any failure or data correction without requiring the table to be
+truncated first.
+
+The PostgresHook from airflow.providers.postgres performs connection management,
+obtaining credentials from the pre-configured Airflow connection. The insert
+operation uses cursor.executemany() with parameterised queries, which is both
+performant for bulk inserts and inherently safe against SQL injection.
+
+5.3  DAG 1 — Dataset Preprocessing
+──────────────────────────────────────
+
+File: airflow/dags/dataset_preprocesser_dag.py
+
+DAG 1 is the most computationally significant in the pipeline. It also calls
+the CSV ingestion logic inline, ensuring the PostgreSQL table is populated
+regardless of whether DAG 0 has been run independently. The preprocessing task
+proceeds through the following substeps.
+
+5.3.1  Column Removal and Leakage Prevention
+
+Four columns are dropped prior to feature engineering:
+
+  id — A database identifier with no domain meaning. Including numeric
+  identifiers as features risks the model learning arbitrary correlations
+  with the assignment order rather than physically meaningful signals.
+
+  name — A free-text string encoding the asteroid's designation. Without
+  encoding (e.g., embedding-based NLP features), this column has no numeric
+  value. Even with encoding, asteroid names are arbitrary designations rather
+  than encodings of physical properties.
+
+  orbiting_body — Zero-variance column (always "Earth"). A constant feature
+  adds a dimension to the feature space without contributing any information
+  gain to any splitting criterion, and would waste resources during training.
+
+  sentry_object — This column represents NASA's Sentry programme flag, which
+  is set based on the same hazard assessment criteria used to assign the
+  hazardous label. Including it constitutes target leakage: the model would
+  learn to predict hazardous from a proxy variable that encodes the answer,
+  yielding inflated training metrics and zero real-world generalisation.
+
+Two defensive assertions are executed before and after column removal to verify
+the expected dataset shape and the absence of null values.
+
+5.3.2  Feature Engineering
+
+Six engineered features are constructed from the four retained continuous
+columns, following the patterns identified during EDA:
+
+  diameter_avg = (est_diameter_min + est_diameter_max) / 2
+
+    Produces a single best-estimate diameter, combining the two correlated
+    diameter bounds into a single representative value. This reduces
+    multicollinearity between est_diameter_min and est_diameter_max while
+    preserving their joint information content.
+
+  diameter_ratio = est_diameter_max / est_diameter_min
+
+    Encodes the relative uncertainty in the diameter estimate. A ratio close
+    to 1 indicates tight estimation bounds (confident measurement); a high
+    ratio indicates wide estimation uncertainty. This captures physical
+    information not present in either bound individually. An assertion
+    verifies est_diameter_min > 0 for all rows before this computation
+    to prevent undefined division.
+
+  log_diameter_avg = log1p(diameter_avg)
+  log_diameter_ratio = log1p(diameter_ratio)
+  log_relative_velocity = log1p(relative_velocity)
+  log_miss_distance = log1p(miss_distance)
+
+    log1p(x) = log(1 + x) is the numerically stable form of the natural
+    logarithm for values near zero, ensuring that the transform is defined
+    even if a feature takes the value zero. The log transform compresses the
+    upper tail of right-skewed distributions, making them more symmetric and
+    approximately Gaussian. This benefits linear models (logistic regression)
+    and distance-based models (SVM, KNN) that implicitly assume distributional
+    normality, and helps gradient-based optimisers by reducing the scale
+    disparity between features. log_miss_distance specifically serves as the
+    regression target, transforming the multi-order-of-magnitude miss distance
+    into a more tractable prediction target.
+
+The four original columns (est_diameter_min, est_diameter_max,
+relative_velocity, miss_distance) are dropped after engineering, since their
+information content is fully captured by the engineered features. Retaining both
+would create multicollinearity that is particularly harmful for linear models.
+
+Post-engineering assertions verify the absence of NaN values (which could arise
+from edge cases in the arithmetic) and the absence of infinite values (which
+could arise from division by near-zero values or unbounded logarithms).
+
+Two distinct feature sets are then defined for the two tasks:
+
+  Classification features (7):
+    log_diameter_avg, log_diameter_ratio, log_relative_velocity,
+    log_miss_distance, absolute_magnitude, diameter_avg, diameter_ratio
+
+  Regression features (6):
+    log_diameter_avg, log_diameter_ratio, log_relative_velocity,
+    absolute_magnitude, diameter_avg, diameter_ratio
+
+  Note that log_miss_distance is excluded from the regression features because
+  it is the regression target variable. Including it as a feature would
+  constitute direct target leakage. It is retained in the classification features
+  because it is an independent observable quantity when predicting hazard status.
+
+5.3.3  Stratified Train-Validation-Test Split
+
+The full engineered dataset is partitioned into three non-overlapping subsets
+using a two-stage stratified split:
+
+  Stage 1: train_test_split(test_size=0.30, stratify=y_clf)
+    Reserves 30% of the data as a temporary "temp" holdout.
+
+  Stage 2: train_test_split(temp, test_size=0.50, stratify=y_clf_temp)
+    Splits the temp holdout equally into validation and test sets.
+
+The resulting partition is:
+
+  Training set:    63,585 records  (70% of 90,836)
+  Validation set:  13,625 records  (15%)
+  Test set:        13,626 records  (15%)
+
+Stratification (stratify=y_clf) ensures that each partition maintains the same
+class proportion as the full dataset (~18.5% hazardous). Without stratification,
+a single unlucky random split could produce a validation set with very few
+hazardous examples, making precision, recall, F1, and AUC-ROC estimates
+unreliable. This is especially important for AUC-ROC, which requires both
+classes to be present.
+
+The regression splits are constructed by indexing into X_reg using the same row
+indices as the classification splits (X_reg.loc[X_clf_train.index], etc.),
+ensuring that the three partitions are identical for both tasks. This is required
+because model evaluation will compare classifier and regressor performance on the
+same held-out records.
+
+5.3.4  SMOTE Oversampling
+
+SMOTE is applied exclusively to the training split (X_clf_train, y_clf_train)
+after the split is complete:
+
+  smote = SMOTE(random_state=42)
+  X_clf_train_sm, y_clf_train_sm = smote.fit_resample(X_clf_train, y_clf_train)
+
+The resulting balanced training set contains approximately equal numbers of
+hazardous and non-hazardous samples, achieved by generating synthetic minority-
+class (hazardous) samples via k-NN interpolation in the 7-dimensional
+classification feature space.
+
+The validation and test sets are deliberately left at their natural class
+distributions (~18.5% hazardous). This is non-negotiable: metrics computed on
+artificially balanced evaluation sets overestimate performance on the true
+distribution and cannot be compared to metrics from other studies using
+unbalanced evaluation sets.
+
+SMOTE is applied to the classification training set only, not to the regression
+training set. The regression target (log_miss_distance) is a continuous value;
+SMOTE operates on class labels and is not applicable to regression.
+
+5.3.5  Feature Scaling
+
+Two StandardScaler instances are fitted, one for classification and one for
+regression:
+
+  scaler_clf = StandardScaler()
+  X_clf_train_scaled = scaler_clf.fit_transform(X_clf_train_sm)
+  X_clf_val_scaled   = scaler_clf.transform(X_clf_val)
+  X_clf_test_scaled  = scaler_clf.transform(X_clf_test)
+
+StandardScaler transforms each feature to zero mean and unit variance:
+
+  x_scaled = (x - μ) / σ
+
+where μ and σ are the mean and standard deviation computed from the training
+data only (fit_transform on training, transform-only on validation and test).
+
+Fitting the scaler on the training data only is the strict leakage-prevention
+requirement: if the scaler were fit on all data (or even on val+test), the mean
+and standard deviation estimates would incorporate information from records that
+the model should not have seen during training, biasing the feature
+transformations.
+
+The SMOTE-augmented training set is used for scaler fitting, meaning μ and σ
+are estimated from the balanced training distribution. The scalers are serialised
+to disk as scaler_clf.joblib and scaler_reg.joblib for use during inference, where
+they must be applied consistently to any new input.
+
+5.4  DAG 2 — Feature Transformer
+──────────────────────────────────
+
+File: airflow/dags/feature_transformer_dag.py
+
+DAG 2 writes the engineered feature data back to PostgreSQL in the
+NearEarthObjectNewFeatures table, creating an operationally queryable ML feature
+store. This is distinct from the CSV outputs of DAG 1, which are optimised for
+direct consumption by scikit-learn. The database table supports SQL-based
+analysis, joins with the raw NearEarthObject table, and ad hoc queries by
+analysts who are not familiar with the Python data science stack.
+
+The table includes a sourceNeoId foreign key referencing NearEarthObject.id,
+enabling joins between raw and engineered feature records. This relational design
+supports future work on lineage tracking — the ability to trace any model
+prediction back to the source record that generated it.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. MACHINE LEARNING METHODOLOGY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1  Problem Formulation
+─────────────────────────
+
+The system addresses two supervised learning tasks simultaneously:
+
+  Task A — Binary Classification:
+    Given a vector of seven engineered features derived from an asteroid's
+    physical and kinematic properties, predict whether the asteroid is
+    potentially hazardous (label 1) or not (label 0).
+
+    Formally: f: R^7 → {0, 1}, with associated probability estimates
+    P(y=1 | x) ∈ [0, 1].
+
+  Task B — Regression:
+    Given a vector of six engineered features (excluding log_miss_distance),
+    predict the log-transformed miss distance log1p(miss_distance_km).
+
+    Formally: g: R^6 → R, where the output is subsequently inverse-
+    transformed via expm1() to recover the prediction in kilometres.
+
+The two tasks share a common preprocessing pipeline up to the point of target
+variable definition, and their training and test splits are aligned on identical
+row indices, enabling consistent evaluation.
+
+6.2  Classification Models
+───────────────────────────
+
+Three classifier families are trained as baselines on the SMOTE-augmented,
+scaled training data:
+
+6.2.1  Logistic Regression
+
+  Logistic regression models the posterior probability of class membership as:
+
+    P(y=1 | x) = σ(w^T x + b) = 1 / (1 + exp(-(w^T x + b)))
+
+  where w is the learned weight vector, b is the bias term, and σ is the
+  logistic (sigmoid) function. The model is trained by maximising the
+  regularised log-likelihood (minimising binary cross-entropy plus an L2
+  penalty). Logistic regression makes a linear decision boundary assumption
+  in the feature space; it is included as a linear baseline to quantify how
+  much non-linear modelling contributes to performance.
+
+  Configuration: max_iter=1000 (extended from the default 100 to ensure
+  convergence on the 7-dimensional scaled feature space), class_weight='balanced'
+  (scales the loss contribution of each class by the inverse of its frequency —
+  equivalent to SMOTE from the model's perspective but applied at the loss
+  level rather than the data level).
+
+6.2.2  Random Forest Classifier
+
+  Random Forest (Breiman, 2001) is an ensemble method that constructs B
+  decision trees, each trained on a bootstrap sample of the training data
+  (bagging) and using a random subset of √p features at each split (feature
+  subsampling), where p is the total number of features. The ensemble prediction
+  is the majority vote across all B trees:
+
+    ŷ = mode{h_b(x) : b = 1, ..., B}
+
+  The two sources of randomness (bagging + feature subsampling) de-correlate
+  the individual trees, reducing variance relative to a single decision tree.
+  Random forests are invariant to monotone feature transformations (making
+  scaling less critical for them than for linear models), naturally handle
+  non-linear feature interactions, and provide feature importance estimates
+  via the mean decrease in Gini impurity across all splits on each feature.
+
+  Configuration: n_estimators=100 (100 trees), class_weight='balanced',
+  random_state=42.
+
+6.2.3  Gradient Boosting Classifier
+
+  Gradient Boosting (Friedman, 2001) constructs an additive ensemble of shallow
+  decision trees in a sequential, residual-correction manner. At each iteration t,
+  a new tree h_t is fit to the negative gradient of the loss function with respect
+  to the current ensemble's predictions:
+
+    F_t(x) = F_{t-1}(x) + ν · h_t(x)
+
+  where ν is the learning rate (shrinkage parameter). Smaller learning rates
+  require more trees but generally produce better generalisation. Gradient
+  Boosting typically outperforms Random Forest on tabular data benchmarks due to
+  its sequential error correction, but is more sensitive to hyperparameters and
+  more prone to overfitting on small datasets.
+
+  Configuration: n_estimators=100, random_state=42. Gradient Boosting does not
+  natively support class_weight; the SMOTE-balanced training data serves as the
+  class balancing mechanism.
+
+6.3  Regression Models
+───────────────────────
+
+Three regressor families are trained on the scaled regression training data
+(log_miss_distance as target):
+
+6.3.1  Linear Regression
+
+  Ordinary Least Squares regression models the target as a linear combination
+  of features:
+
+    ŷ = β^T x + ε
+
+  minimising the sum of squared residuals ‖y - Xβ‖². Linear regression is
+  included as the baseline to establish whether any non-linear model provides
+  a meaningful improvement over a purely linear fit.
+
+6.3.2  Random Forest Regressor
+
+  The regression variant of Random Forest predicts continuous targets by
+  averaging leaf node values across all trees rather than voting on class labels.
+  The variance reduction from bagging and feature subsampling makes it robust to
+  the outliers present in the miss distance distribution.
+
+6.3.3  Gradient Boosting Regressor
+
+  Gradient Boosting for regression minimises the mean squared error loss function,
+  sequentially adding trees that predict the residuals of the current ensemble.
+  This is the model ultimately selected for regression after both model selection
+  (DAG 4) and hyperparameter optimisation (DAG 5).
+
+6.4  Evaluation Metrics
+────────────────────────
+
+Classification metrics:
+
+  Weighted F1-Score (primary ranking metric):
+    F1 = 2 · (precision · recall) / (precision + recall)
+    The weighted variant computes F1 for each class separately and averages
+    by the class's support (number of true instances), making it appropriate
+    under class imbalance. It is the primary model selection criterion because
+    it simultaneously rewards precision (low false positive rate) and recall
+    (low false negative rate).
+
+  AUC-ROC (secondary):
+    The area under the Receiver Operating Characteristic curve, which plots
+    true positive rate vs. false positive rate across all classification
+    thresholds. AUC-ROC = 1.0 indicates perfect separability; AUC-ROC = 0.5
+    indicates random classification. It is threshold-independent and measures
+    the model's discriminative ability across the full range of operating points.
+
+  Accuracy (reported, not used for ranking):
+    Fraction of correct predictions. Reported for completeness but not used for
+    model selection, as it is misleading under class imbalance.
+
+  The composite model selection score for classifiers is:
+    score = (F1_weighted + AUC_ROC) / 2
+
+Regression metrics:
+
+  R² — Coefficient of Determination (primary ranking metric):
+    R² = 1 - SS_res / SS_tot
+    Fraction of variance in the target explained by the model. R² = 1.0
+    indicates a perfect fit; R² = 0 indicates the model explains no more
+    variance than predicting the mean. Negative R² indicates the model
+    performs worse than predicting the mean.
+
+  RMSE (log scale):
+    Root Mean Squared Error in the log-transformed target space.
+
+  RMSE (km):
+    Root Mean Squared Error in the original kilometre scale, computed by
+    inverse-transforming predictions via expm1() before computing the error.
+    This is the operationally interpretable error metric.
+
+  MAE:
+    Mean Absolute Error. Less sensitive to large outliers than RMSE.
+
+6.5  DAG 3 — Baseline Model Training
+───────────────────────────────────────
+
+File: airflow/dags/model_training_dag.py
+
+DAG 3 trains all six models, evaluates them on the validation set, computes
+all specified metrics for each, and writes the following outputs to
+Dataset/mlops_pipeline/:
+
+  baseline_models/*.joblib   — serialised trained model objects
+  clf_baseline_metrics.json  — per-classifier: accuracy, F1, AUC, precision, recall
+  reg_baseline_metrics.json  — per-regressor: R², RMSE (log), MAE
+  cv_results.json            — 5-fold cross-validation results for top-2 models
+
+The DAG also performs 5-fold stratified cross-validation on the top-2 classifiers
+and top-2 regressors by validation metric, producing mean ± std estimates of
+generalisation performance. See Section 6.7 for the cross-validation design.
+
+6.6  DAG 4 — Model Selection via Test-Set Evaluation
+─────────────────────────────────────────────────────
+
+File: airflow/dags/final_model_selector_dag.py
+
+DAG 4 implements the sealed test set evaluation. This is the first and only time
+the test partition is touched by any model evaluation logic. All prior model
+comparisons (in DAG 3) were conducted on the validation set, preserving the test
+set for a single, unbiased performance estimate.
+
+The selection criteria are:
+
+  Best classifier: argmax_m { (F1_weighted(m, X_test) + AUC_ROC(m, X_test)) / 2 }
+  Best regressor:  argmax_m { R²(m, X_test) }
+
+The selection results are written to model_selection.json. The test metrics for
+all models are written to clf_test_metrics.json and reg_test_metrics.json.
+Based on the evaluation, RandomForestClassifier was selected as the best
+classifier and GradientBoostingRegressor as the best regressor.
+
+6.7  Cross-Validation Strategy
+────────────────────────────────
+
+5-fold stratified cross-validation (for classifiers) and 5-fold standard K-fold
+cross-validation (for regressors) are conducted on the SMOTE-augmented training
+data. The procedure is as follows:
+
+  skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+  scores = cross_val_score(model, X_train, y_train, cv=skf,
+                           scoring='f1_weighted', n_jobs=-1)
+
+Each fold produces one F1 score; the five scores are averaged to produce the
+cross-validation estimate, and the standard deviation across folds quantifies
+the stability of the estimate. A high standard deviation indicates that the
+model's performance is sensitive to the particular training-validation split,
+which could indicate overfitting to specific data patterns.
+
+Cross-validation results complement (rather than replace) the sealed test set
+evaluation. CV provides a more reliable estimate of generalisation performance
+than a single validation set evaluation by averaging over multiple holdout sets,
+but still operates on training data. The test set provides the final
+unbiased estimate.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. HYPERPARAMETER OPTIMISATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7.1  Optuna and Tree-Structured Parzen Estimator
+─────────────────────────────────────────────────
+
+Hyperparameter optimisation (HPO) is the process of searching for the
+hyperparameter configuration that maximises model performance on a held-out
+evaluation set. Grid search evaluates all combinations of specified hyperparameter
+values — its computational cost grows exponentially with the number of
+hyperparameters. Random search samples hyperparameter configurations uniformly at
+random — more efficient than grid search but does not exploit information from
+past evaluations.
+
+Bayesian optimisation addresses this limitation by building a probabilistic model
+of the objective function (performance as a function of hyperparameters) and using
+it to intelligently select the next configuration to evaluate. The Tree-structured
+Parzen Estimator (TPE, Bergstra et al., 2011) is a particularly efficient Bayesian
+optimisation algorithm. TPE models two conditional distributions:
+
+  l(x) — the density of hyperparameter values that produced "good" outcomes
+           (performance above a quantile threshold γ, typically γ = 0.25)
+  g(x) — the density of hyperparameter values that produced "bad" outcomes
+
+The next hyperparameter configuration to evaluate is selected by maximising the
+acquisition function l(x)/g(x) — configurations that are more likely under the
+good distribution than the bad distribution are preferred.
+
+Optuna (Akiba et al., 2019) implements TPE as its default sampler. Each trial
+is an independent training run with a specific hyperparameter configuration;
+the study collects results across all trials and uses them to update the TPE
+model. Optuna supports parallel trials, pruning of unpromising trials, and
+multi-objective optimisation.
+
+7.2  Search Space Definition
+──────────────────────────────
+
+Both the selected classifier (RandomForestClassifier) and regressor
+(GradientBoostingRegressor) are tuned using separate Optuna studies. The search
+space for each is defined as:
+
+  For GradientBoostingRegressor (and GradientBoostingClassifier):
+
+    Hyperparameter       Type       Range / Choices
+    ─────────────────    ────────   ──────────────────────────────────────
+    n_estimators         integer    100 – 500
+    max_depth            integer    3 – 8
+    learning_rate        float      0.001 – 0.3  (log-uniform sampling)
+    min_samples_split    integer    2 – 20
+    subsample            float      0.6 – 1.0
+
+  The learning_rate is sampled on a log-uniform scale because its impact on
+  model behaviour is multiplicative — the difference between 0.001 and 0.01
+  is more meaningful than the difference between 0.291 and 0.300. Log-uniform
+  sampling allocates search density proportionally across orders of magnitude.
+
+  n_estimators and max_depth are sampled as integers. n_estimators controls
+  the number of boosting stages; more trees increase model capacity but also
+  training time. max_depth controls individual tree complexity; shallower trees
+  (max_depth=3-4) are preferred for boosted ensembles because deep trees can
+  overfit the residual at each stage.
+
+  min_samples_split controls the minimum number of samples required to split
+  an internal tree node, acting as regularisation. subsample controls the
+  fraction of training samples used for each tree (stochastic gradient boosting),
+  adding regularisation through randomisation.
+
+7.3  DAG 5 — Hyperparameter Tuning Execution
+──────────────────────────────────────────────
+
+File: airflow/dags/model_parameter_tunner_dag.py
+
+The DAG defines two Optuna tasks (tune_classifier, tune_regressor) followed by
+a combined evaluation task. Each tuning task:
+
+  1. Creates an Optuna study with the TPE sampler and 50 trials.
+  2. Defines an objective function that:
+     a. Samples a hyperparameter configuration from the study's sampler.
+     b. Trains the model on the SMOTE-augmented training set.
+     c. Evaluates on the validation set (F1+AUC/2 for classification, R² for
+        regression).
+     d. Returns the objective value to the study.
+  3. Runs study.optimize(objective, n_trials=50).
+  4. Retrieves the best trial's parameters.
+  5. Retrains the model with those parameters on the full training set.
+  6. Saves the retrained model as tuned_classifier.joblib / tuned_regressor.joblib.
+  7. Saves the best parameters as best_clf_params.json / best_reg_params.json.
+
+Following tuning, the evaluate_tuned_models task loads both tuned models and
+evaluates them on the sealed test set for the second time (the first was in
+DAG 4), producing tuned_test_metrics.json.
+
+7.4  Tuning Outcome
+────────────────────
+
+The Optuna study for the GradientBoostingRegressor converged to the following
+optimal configuration after 50 trials:
+
+  n_estimators:      104
+  max_depth:         7
+  learning_rate:     0.0302  (log-sampled)
+  min_samples_split: 17
+  subsample:         0.9542
+  random_state:      42
+
+These parameters represent a relatively shallow, high-subsample configuration
+with a low learning rate. The low learning rate (0.0302 vs. a default of 0.1)
+combined with 104 estimators indicates that the TPE sampler found that slower,
+more conservative gradient steps with a moderate number of boosting rounds
+produced the best generalisation on the validation set.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. ARTIFACT MANAGEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8.1  DAG 6 — Model Extractor
+─────────────────────────────
+
+File: airflow/dags/model_extractor_dag.py
+
+DAG 6 is the final stage in the pipeline and serves as the promotion gate between
+tuned models and production artifacts. Its three tasks are:
+
+  Task 1 — verify_tuned_models: Loads each tuned model file using joblib and
+  confirms it is a valid sklearn estimator instance with the expected methods
+  (predict, predict_proba / predict). Fails immediately if any artifact is
+  missing or corrupted.
+
+  Task 2 — extract_artifacts: Copies the tuned models, scalers, feature name
+  lists, and all test metrics into models/artifacts/. Constructs and writes
+  model_metadata.json, which aggregates:
+    - trained_at: ISO 8601 timestamp of artifact creation
+    - classifier: model class name, selection source, hyperparameters, test metrics
+    - regressor: model class name, selection source, hyperparameters, test metrics
+    - features: clf_features and reg_features arrays (column names in order)
+    - pipeline: human-readable trace of the full DAG sequence
+
+  Task 3 — smoke_test_artifacts: Performs a full end-to-end inference call using
+  a hard-coded test input, exercising the complete inference path:
+    - Feature engineering on raw input values
+    - Scaling via both loaded scalers
+    - Classification prediction (binary label and probability)
+    - Regression prediction (log-space output, inverse-transformed to km)
+  If any step raises an exception — including file-not-found, shape mismatches,
+  or NaN outputs — the task fails and the DAG is marked as failed, blocking any
+  dependent workflows from consuming the artifacts.
+
+8.2  Artifact Inventory
+────────────────────────
+
+Upon successful completion of DAG 6, the models/artifacts/ directory contains:
+
+  File                   Description
+  ─────────────────────  ──────────────────────────────────────────────────────
+  classifier.joblib      Trained RandomForestClassifier (production version)
+  regressor.joblib       Trained GradientBoostingRegressor (Optuna-tuned)
+  scaler_clf.joblib      StandardScaler fitted on SMOTE-augmented training data
+                         for the 7 classification features
+  scaler_reg.joblib      StandardScaler fitted on training data for the 6
+                         regression features
+  feature_names.json     {"clf_features": [...], "reg_features": [...]} — the
+                         ordered column name arrays required to construct
+                         DataFrame inputs for prediction
+  model_metadata.json    Complete model provenance: trained_at timestamp,
+                         hyperparameters, test metrics (F1, AUC, R², RMSE),
+                         and pipeline trace string
+
+8.3  Smoke Testing
+───────────────────
+
+The smoke test in DAG 6 serves a purpose analogous to integration testing in
+software engineering: it verifies that the system behaves correctly end-to-end
+under a known input before being declared ready for production use. Unlike unit
+tests (which test individual functions in isolation), the smoke test exercises
+the complete inference stack: file loading → feature engineering → scaling →
+model inference → output formatting.
+
+This pattern — requiring a successful smoke test before promoting artifacts —
+is a fundamental MLOps practice. It catches regressions introduced by: changes
+in scikit-learn serialisation format between versions, file copy errors that
+produce corrupted joblib files, shape mismatches between the scaler's expected
+input dimensions and the current feature set, and numerical issues (NaN/Inf
+propagation) that escaped assertion guards in earlier DAGs.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. MODEL PERFORMANCE AND RESULTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9.1  Classification Results
+────────────────────────────
+
+The final classification model (RandomForestClassifier) was evaluated on the
+held-out test set of 13,626 records, producing the following metrics:
+
+  Metric                  Score
+  ──────────────────────  ──────────
+  F1-Score (weighted)     0.9039
+  AUC-ROC                 0.9145
+  Accuracy                0.9015
+
+These results indicate strong classification performance. An AUC-ROC of 0.9145
+means that, for a randomly selected pair of one hazardous and one non-hazardous
+asteroid, the model assigns a higher probability of being hazardous to the
+actually hazardous object in 91.45% of cases across all possible classification
+thresholds. A weighted F1-score of 0.9039 confirms that the model achieves
+high precision and recall for both classes simultaneously when weighted by
+class frequency.
+
+The use of SMOTE to address the class imbalance in the training data is validated
+by these metrics. Prior to SMOTE, a baseline majority-class predictor achieves
+~81.5% accuracy — the model's 90.15% accuracy is a meaningful improvement, and
+the F1 and AUC-ROC scores confirm that this improvement is genuine rather than
+an artifact of predicting the majority class.
+
+9.2  Regression Results
+────────────────────────
+
+The final regression model (GradientBoostingRegressor, Optuna-tuned) was evaluated
+on the same held-out test set:
+
+  Metric                  Score
+  ──────────────────────  ──────────────────
+  R²                      0.1657
+  RMSE (log scale)        1.0434
+  RMSE (km)               22,470,463 km
+
+  Optimal Hyperparameters:
+    n_estimators:         104
+    max_depth:            7
+    learning_rate:        0.0302
+    min_samples_split:    17
+    subsample:            0.9542
+
+9.3  Discussion of Regression R²
+──────────────────────────────────
+
+An R² of 0.1657 indicates that the GradientBoostingRegressor explains
+approximately 16.57% of the variance in log_miss_distance. While this is a modest
+result by the standards of some regression benchmarks, it should be interpreted in
+the context of the problem domain.
+
+Miss distance is a function of the asteroid's full orbital mechanics — its
+semi-major axis, eccentricity, inclination, argument of perihelion, longitude
+of ascending node, and mean anomaly — none of which are directly available in
+this dataset. The available features (diameter, velocity at closest approach,
+absolute magnitude) are derived characteristics of the encounter rather than the
+orbital elements that determine it. Predicting miss distance from encounter
+statistics alone is analogous to predicting a vehicle's fuel consumption from its
+speed at a single measurement without knowing its engine specification, load, or
+route.
+
+The relatively low R² is therefore expected and physically meaningful rather than
+indicative of poor model quality. The classification task, by contrast, yields
+strong performance because the hazardous designation is partially determined by
+the encounter characteristics (specifically, miss distance is a criterion for PHA
+designation — objects that frequently make very close approaches are more likely
+to be designated hazardous), creating a more direct relationship between the
+available features and the target.
+
+The RMSE of 22.47 million kilometres must be interpreted against the base variance
+in miss distance. Across the dataset, miss distances range from ~6,745 km to
+~74.8 million km with a median of ~37.8 million km. An RMSE of 22.47 million km
+represents approximately 59% of the median miss distance — large in absolute
+terms but consistent with the inherent unpredictability of the target from the
+available features.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. API SERVER DESIGN AND IMPLEMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10.1  FastAPI Framework Selection
+───────────────────────────────────
+
+FastAPI (version 0.136.0) was selected as the API framework for several reasons
+that align with production MLOps requirements:
+
+  Automatic OpenAPI Documentation: FastAPI generates an interactive Swagger UI
+  at /docs and a ReDoc interface at /redoc from the Python type annotations,
+  making the API self-documenting with no additional effort.
+
+  Pydantic Integration: Request and response body validation is handled by Pydantic
+  v2, which provides automatic type coercion, field-level validation constraints
+  (gt=0, min_length), and structured error responses. This eliminates the need for
+  manual input validation logic.
+
+  Async-First Design: FastAPI is built on Starlette and supports asynchronous
+  request handlers via Python's async/await syntax, enabling high concurrency for
+  I/O-bound operations.
+
+  Performance: FastAPI is one of the fastest Python web frameworks in benchmarks,
+  comparable to NodeJS and Go for JSON-serialisation-heavy workloads.
+
+10.2  Application Lifecycle and Artifact Loading
+──────────────────────────────────────────────────
+
+All trained artifacts and the full NEO dataset are loaded into the application's
+global state at startup via an asynccontextmanager lifespan function:
+
+  @asynccontextmanager
+  async def lifespan(app: FastAPI):
+      models["clf"]        = joblib.load(ARTIFACT_DIR / "classifier.joblib")
+      models["reg"]        = joblib.load(ARTIFACT_DIR / "regressor.joblib")
+      models["scaler_clf"] = joblib.load(ARTIFACT_DIR / "scaler_clf.joblib")
+      models["scaler_reg"] = joblib.load(ARTIFACT_DIR / "scaler_reg.joblib")
+      with open(ARTIFACT_DIR / "feature_names.json") as f:
+          models["features"] = json.load(f)
+      with open(ARTIFACT_DIR / "model_metadata.json") as f:
+          models["metadata"] = json.load(f)
+      neo_df = pd.read_csv(DATASET_PATH)
+      yield
+      models.clear()
+
+This eager-loading strategy means that all file I/O occurs once at server startup,
+and all subsequent prediction requests operate entirely in memory. The alternative
+— loading artifacts on each request — would introduce hundreds of milliseconds of
+latency per prediction due to file reading and joblib deserialization, making the
+service unusable for low-latency applications.
+
+The artifact directory path is computed at module import time using Python's
+pathlib:
+
+  BASE_DIR     = Path(__file__).parent           # api-server/
+  ARTIFACT_DIR = (BASE_DIR / "../models/artifacts").resolve()
+
+This relative path resolution is robust to the working directory from which the
+server is launched, provided the repository structure is preserved — which it is
+by Docker's volume mounting strategy.
+
+10.3  Inference Pipeline
+─────────────────────────
+
+The _run_inference helper function encapsulates the complete inference path from
+raw user-supplied parameters to a structured prediction output. It mirrors
+exactly the feature engineering logic applied in DAG 1:
+
+  Step 1 — Feature Engineering:
+    diameter_avg          = (est_diameter_min + est_diameter_max) / 2
+    diameter_ratio        = est_diameter_max / est_diameter_min
+    log_diameter_avg      = np.log1p(diameter_avg)
+    log_diameter_ratio    = np.log1p(diameter_ratio)
+    log_relative_velocity = np.log1p(relative_velocity)
+    log_miss_distance     = np.log1p(miss_distance)
+
+  Step 2 — DataFrame Construction:
+    clf_input = pd.DataFrame([[...]], columns=clf_features)
+    reg_input = pd.DataFrame([[...]], columns=reg_features)
+
+    Features are assembled as a single-row DataFrame with column names matching
+    the ordered feature arrays from feature_names.json. This is critical: scikit-
+    learn's pipeline expects inputs with columns in the exact order used during
+    training. Using DataFrame with named columns (rather than a bare numpy array)
+    makes the ordering explicit and resistant to accidental transposition.
+
+  Step 3 — Scaling:
+    clf_scaled = scaler_clf.transform(clf_input)
+    reg_scaled = scaler_reg.transform(reg_input)
+
+    The fitted scalers from training are applied, subtracting the training mean
+    and dividing by the training standard deviation. This ensures that the
+    numerical range seen by the model during inference matches the range seen
+    during training — a necessary condition for correct predictions.
+
+  Step 4 — Prediction:
+    hazardous = bool(clf.predict(clf_scaled)[0])
+    probability = float(clf.predict_proba(clf_scaled)[0, 1])
+    miss_dist_log = float(reg.predict(reg_scaled)[0])
+    miss_dist_km  = np.expm1(miss_dist_log)
+
+    predict_proba returns a (1, 2) array; column index 1 is the probability of
+    the positive class (hazardous). expm1() is the inverse of log1p(), recovering
+    the miss distance prediction in kilometres.
+
+10.4  Endpoint Catalogue
+─────────────────────────
+
+The API exposes ten endpoints organised into three logical groups:
+
+  Health
+  ──────
+  GET  /
+    Returns {"message": "server is up and running", "healthy": true}. Used by
+    container health checks and monitoring systems.
+
+  Model
+  ─────
+  GET  /model/info
+    Returns the full contents of model_metadata.json: trained_at timestamp,
+    classifier and regressor configurations, test metrics, feature name arrays,
+    and the pipeline trace string. Enables API consumers to verify the provenance
+    of the model serving their predictions.
+
+  Prediction
+  ──────────
+  POST /predict
+    Accepts a single AsteroidInput object (5 raw fields), runs the inference
+    pipeline, and returns a PredictionOutput object (hazardous: bool,
+    hazardous_probability: float, miss_distance_km: float).
+
+  POST /neo/predict-batch
+    Accepts a JSON array of up to 100 AsteroidInput objects and returns a
+    response containing the count and an array of PredictionOutput objects.
+    Batch processing shares the startup cost of artifact loading across multiple
+    inputs, improving throughput for bulk classification tasks.
+
+  NEO Data
+  ────────
+  GET  /neo/info/all?limit=N&offset=M
+    Returns a paginated slice of the full NEO dataset (limit: 1–1000,
+    offset ≥ 0) with the total count, enabling clients to implement
+    pagination across the 90,836-record catalogue.
+
+  GET  /neo/info/{neo_id}
+    Returns a single NEO record matching the integer ID. Returns HTTP 404
+    with a descriptive message if the ID is not found.
+
+  GET  /neo/hazardous?limit=N&offset=M
+    Filtered paginated view restricted to records where hazardous == True.
+
+  GET  /neo/safe?limit=N&offset=M
+    Filtered paginated view restricted to records where hazardous == False.
+
+  GET  /neo/stats
+    Returns aggregate statistics computed from the in-memory DataFrame:
+    total records, hazardous count, safe count, hazardous percentage,
+    mean/max relative velocity, mean/min miss distance, mean diameter
+    bounds, and mean absolute magnitude.
+
+  GET  /neo/search?name=<query>&limit=N
+    Performs a case-insensitive partial match on the name column using
+    pandas str.contains(), returning matching records up to the limit.
+
+10.5  Input Validation and Error Handling
+──────────────────────────────────────────
+
+Input validation operates at two levels:
+
+  Pydantic Field-Level Validation: The AsteroidInput model specifies gt=0
+  constraints on est_diameter_min, est_diameter_max, relative_velocity, and
+  miss_distance. Pydantic enforces these constraints before the route handler
+  is invoked, returning a 422 Unprocessable Entity response with a structured
+  error detail if any constraint is violated.
+
+  Application-Level Validation: The /predict endpoint additionally checks that
+  est_diameter_max >= est_diameter_min, returning HTTP 422 with a descriptive
+  message if violated. This constraint cannot be expressed as a single-field
+  Pydantic validator and requires cross-field logic.
+
+  Batch Validation: The /neo/predict-batch endpoint validates that the batch
+  contains at least one item and no more than 100, and applies the cross-field
+  diameter constraint to each item individually with a descriptive index prefix
+  in the error message to identify which item failed.
+
+10.6  CORS and Cross-Origin Policy
+────────────────────────────────────
+
+Cross-Origin Resource Sharing (CORS) middleware is configured to permit requests
+from two origins: the Nginx-unified entry point and the direct Next.js port used
+during local development outside Docker:
+
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=["http://localhost:3000", "http://localhost"],
+      allow_methods=["*"],
+      allow_headers=["*"],
+  )
+
+When the full Docker Compose stack is running, the browser loads the frontend
+from http://localhost (port 80, via Nginx) and the API is served at
+http://localhost/api — both on the same origin, so the browser does not issue
+CORS preflight requests and the middleware is effectively bypassed. The
+http://localhost origin in the list covers this path. The http://localhost:3000
+entry is retained for the development scenario where a developer runs the
+Next.js application directly via npm run dev (outside Docker), in which case the
+frontend is served from port 3000 while the API is accessed through Nginx on
+port 80, making them distinct origins. In a production deployment the
+allow_origins list would be updated to the production frontend domain.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. WEB APPLICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+11.1  Technology Stack and Rationale
+──────────────────────────────────────
+
+The web frontend is built with Next.js 16.2.4 (App Router), React 19.2.4, and
+TypeScript. This combination was selected for the following reasons:
+
+  Next.js App Router: The App Router (introduced in Next.js 13 and stable in 14+)
+  provides file-based routing, React Server Components for server-side rendering,
+  and integrated API route handlers. It co-locates routing structure with the
+  component tree, improving discoverability for developers unfamiliar with the
+  codebase.
+
+  TypeScript: Static typing catches category errors (passing a string where a
+  number is expected) at compile time rather than runtime. All API interfaces
+  (NEORecord, PredictionOutput, ModelMetadata, etc.) are declared as TypeScript
+  interfaces, ensuring that the web application's API client and the FastAPI
+  server's Pydantic models remain in sync.
+
+  TailwindCSS 4: A utility-first CSS framework that eliminates the context-
+  switching cost of authoring separate stylesheet files. Styles are co-located
+  with the component markup.
+
+  Prisma 7: A type-safe ORM for Node.js/TypeScript that generates a fully typed
+  database client from the schema definition. Prisma's migration system manages
+  database schema evolution and ensures consistency between the schema file and
+  the live database.
+
+11.2  Application Pages and Features
+──────────────────────────────────────
+
+  / — Dashboard:
+    The landing page displays summary statistics retrieved from GET /neo/stats:
+    total asteroid count, hazardous object count and percentage, average and
+    maximum relative velocity, and average and minimum miss distance. These
+    statistics provide an immediate overview of the dataset's scale and
+    composition. The page may also render Three.js-based 3D space visualisations
+    using React Three Fiber and @react-three/drei.
+
+  /predict — Prediction Interface:
+    A form with five input fields corresponding to the AsteroidInput schema.
+    On submission, the form data is sent to POST /predict and the response is
+    rendered as a classification label (hazardous / safe), probability score,
+    and estimated miss distance in kilometres. Framer Motion animations provide
+    visual feedback on the state transition from input to result.
+
+  /model — Model Metadata Viewer:
+    Retrieves and displays the full model_metadata.json content from
+    GET /model/info. Renders the classifier and regressor configurations,
+    test metrics, and feature lists in a structured layout, allowing users
+    to understand the provenance and performance characteristics of the
+    model serving their predictions.
+
+  /neo — NEO Browser:
+    Paginated table rendering all NEO records from GET /neo/info/all.
+    Supports client-side pagination controls. Clicking a record navigates
+    to a detail view using GET /neo/info/{id}.
+
+  /neo/search — Search Interface:
+    A search input that queries GET /neo/search with the user's text and
+    renders matching asteroid records. Uses case-insensitive partial name
+    matching.
+
+  /signin and /signup — Authentication Pages:
+    User registration and sign-in forms backed by NextAuth.js session
+    management, with credentials stored in the Admin table via Prisma.
+
+11.3  Typed API Client
+───────────────────────
+
+The lib/api.ts module implements a typed HTTP client wrapping the browser's
+native fetch API:
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost/api";
+
+  async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+      const res = await fetch(`${API_BASE}${path}`, {...init,
+          headers: {"Content-Type": "application/json", ...}});
+      if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<T>;
+  }
+
+All ten API endpoints are wrapped as typed methods on an exported api object:
+api.predict(), api.neoStats(), api.neoSearch(), etc. The TypeScript generic
+parameter T constrains the return type to the declared interface, providing
+compile-time type safety for all API calls throughout the application.
+
+The API base URL is read from the NEXT_PUBLIC_API_URL environment variable,
+which is baked into the client-side bundle at build time by Next.js. This design
+allows the API server address to be configured per environment (development,
+staging, production) without code changes.
+
+11.4  Authentication
+─────────────────────
+
+Authentication is implemented using NextAuth.js 4.24.14, a complete authentication
+library for Next.js applications. The system uses a credentials provider that
+validates username/password pairs against hashed values stored in the Admin table.
+Session management uses JWT tokens signed with a configured secret
+(NEXTAUTH_SECRET). The NEXTAUTH_URL environment variable specifies the canonical
+URL of the application, which is required for NextAuth's CSRF protection and
+callback URL construction.
+
+11.5  Database Access via Prisma
+──────────────────────────────────
+
+The Prisma client is configured in lib/prisma.ts as a module-level singleton,
+following Next.js best practices for connection pooling in serverless and
+development environments:
+
+  The schema defines three models: Admin (authentication), NearEarthObject
+  (raw asteroid records), and NearEarthObjectNewFeatures (engineered ML features).
+  The NearEarthObjectNewFeatures model includes a sourceNeo relation to
+  NearEarthObject, enabling typed Prisma queries that join engineered features
+  with their source records.
+
+  The datasource URL is read from the DATABASE_URL environment variable at
+  runtime, following the Prisma 7 convention of externalising connection
+  configuration from the schema file into prisma.config.ts.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. DATABASE ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+12.1  Schema Design
+────────────────────
+
+The database schema serves three distinct concerns, each reflected in a separate
+table:
+
+  NearEarthObject: The authoritative store of raw NASA data. Column names and
+  types closely mirror the CSV schema to preserve data fidelity. This table
+  is the "source of truth" for all downstream operations.
+
+  NearEarthObjectNewFeatures: The ML feature store. Each row contains the
+  fully engineered feature vector for one asteroid, linked to the source
+  NearEarthObject record via a foreign key. This table is the operational
+  interface for analysts who need to query features without re-running the
+  Python preprocessing pipeline.
+
+  Admin: User account storage for the web application's authentication layer.
+  Separating application user management from the scientific data tables is
+  a standard database design practice.
+
+12.2  Idempotent Ingestion
+───────────────────────────
+
+Both the csv_to_postgres DAG and the load_raw_to_postgres task in DAG 1 use
+PostgreSQL's INSERT ... ON CONFLICT (id) DO UPDATE syntax. This ensures that
+the ingestion operation is idempotent — safe to run multiple times with the same
+input without producing duplicate records. This design is aligned with the
+idempotency principle in distributed systems: pipeline stages should produce the
+same output regardless of how many times they are executed, provided the input
+is unchanged.
+
+12.3  ML Feature Store Table
+──────────────────────────────
+
+The NearEarthObjectNewFeatures table stores the seven engineered features
+(diameter_avg, diameter_ratio, log_diameter_avg, log_diameter_ratio,
+log_relative_velocity, log_miss_distance, absolute_magnitude) alongside the
+binary hazardous label (stored as integer 0/1 rather than boolean for broader
+compatibility with ML tooling that expects integer class labels) and the
+sourceNeoId foreign key.
+
+The hazardous field in this table uses INT rather than BOOLEAN, following the
+convention in machine learning where class labels are typically represented as
+integers. The raw NearEarthObject table retains BOOLEAN for fidelity to the
+source data.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. INFRASTRUCTURE AND CONTAINERISATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+13.1  Docker Compose Service Topology
+───────────────────────────────────────
+
+The full system is described in a single docker-compose.yml file defining seven
+services:
+
+  Service              Image                     Port   Role
+  ───────────────────  ────────────────────────  ─────  ──────────────────────
+  postgres             postgres:16-alpine         5432   Primary database
+  airflow-webserver    built from airflow/        8080   Airflow UI & REST API
+  airflow-scheduler    built from airflow/          —    DAG scheduling
+  airflow-init         built from airflow/          —    DB migration + admin user
+  neo-app              built from neo-app/        3000   Next.js frontend
+  api-server           built from api-server/     8000   FastAPI prediction server
+  nginx                nginx:alpine                 80   Reverse proxy / entry point
+
+The three Airflow services share a common configuration via a YAML anchor
+(x-airflow-common), which defines the build context, environment variables,
+volume mounts, and dependency on postgres. This eliminates duplication and ensures
+that changes to shared configuration (e.g., database connection strings) are made
+in a single place. Nginx sits in front of all three user-facing services and is
+the sole host-exposed entry point for HTTP traffic.
+
+13.2  Custom Airflow Image
+───────────────────────────
+
+The stock apache/airflow:2.7.1 image does not include the scientific Python
+stack (scikit-learn, imbalanced-learn, Optuna, etc.) required by the DAG task
+callables. The custom image defined in airflow/Dockerfile extends the base image:
+
+  FROM apache/airflow:2.7.1
+  COPY requirements.txt /requirements.txt
+  RUN pip install --no-cache-dir -r /requirements.txt
+
+The --no-cache-dir flag prevents pip from writing downloaded packages to the
+container's cache directory, reducing the final image size. The requirements.txt
+specifies minimum version bounds (e.g., scikit-learn>=1.3.0) rather than exact
+pinned versions, allowing compatible updates while maintaining API stability.
+
+13.3  API Server Image
+───────────────────────
+
+The API server image is built from api-server/Dockerfile using python:3.11-slim
+as the base. The slim variant omits documentation files and test data from the
+standard python image, reducing image size by approximately 200 MB. Dependencies
+are installed from a clean, minimal requirements.txt specifying nine runtime
+packages: fastapi, uvicorn, joblib, pandas, numpy, scikit-learn, pydantic,
+python-dotenv, and dill.
+
+All numeric library versions are pinned to exact values that match the Airflow
+training environment in which the model artifacts were serialised:
+
+  scikit-learn==1.3.2   (matches Airflow container; avoids InconsistentVersionWarning)
+  joblib==1.4.2         (matches Airflow container)
+  numpy==1.24.4         (matches Airflow container)
+  pandas==2.0.3         (matches Airflow container)
+  dill==0.3.1.1         (required to deserialise joblib artifacts that embed dill-pickled objects)
+
+The dill package is a critical dependency: the .joblib artifact files produced by
+the Airflow training pipeline contain objects serialised via dill (pulled in
+transitively by the Airflow environment). Without dill installed in the serving
+container, joblib raises ModuleNotFoundError during the lifespan startup phase,
+preventing the server from starting. The version is pinned to match the dill
+version present in the training environment to ensure pickle format
+compatibility.
+
+13.4  Next.js Multi-Stage Build
+─────────────────────────────────
+
+The Next.js Dockerfile employs a three-stage build to minimise the final image
+size:
+
+  Stage 1 — deps (node:22-alpine):
+    Installs all npm dependencies via npm ci (clean install from package-lock.json,
+    producing a reproducible node_modules directory). This stage is cached by
+    Docker if package.json and package-lock.json are unchanged, avoiding
+    reinstallation on every code change.
+
+  Stage 2 — builder (node:22-alpine):
+    Copies node_modules from the deps stage, copies all source files, and runs:
+      1. npx prisma generate — generates the typed Prisma client from schema.prisma
+      2. npm run build — compiles TypeScript, bundles the application, and
+         generates the .next/standalone output (enabled by output: "standalone"
+         in next.config.ts)
+
+    NEXT_PUBLIC_API_URL is passed as a Docker build argument and set as an
+    environment variable before the build step, ensuring it is baked into the
+    client-side bundle. DATABASE_URL is set to the Docker-internal Postgres
+    address for use by prisma generate.
+
+  Stage 3 — runner (node:22-alpine):
+    Copies only the standalone server bundle (.next/standalone/), static assets
+    (.next/static/), and the public/ directory from the builder stage. The full
+    node_modules directory (typically 300–500 MB) is not copied, as the standalone
+    build includes only the required runtime dependencies. The resulting image is
+    substantially smaller than a naive copy-everything approach.
+
+13.5  Volume Strategy and Data Sharing
+────────────────────────────────────────
+
+Two host directories are mounted as volumes to enable data sharing between the
+Airflow pipeline and the API server:
+
+  ./models → /opt/airflow/models  (in Airflow services)
+  ./models → /models              (in api-server)
+
+  ./Dataset → /opt/airflow/dataset  (in Airflow services)
+  ./Dataset → /Dataset              (in api-server)
+
+This shared volume strategy is essential to the system's design: the Airflow
+pipeline writes artifacts to models/artifacts/ on the host filesystem, and the
+API server reads them from the same directory. Because both services mount the
+same host path, artifacts are immediately available to the API server once DAG 6
+completes, without requiring any file transfer or publication step.
+
+13.6  Health Checks and Service Dependencies
+─────────────────────────────────────────────
+
+PostgreSQL exposes a health check via pg_isready:
+
+  test: ["CMD-SHELL", "pg_isready -U mlops -d mlops"]
+  interval: 5s
+  timeout: 5s
+  retries: 10
+
+All four dependent services (airflow-webserver, airflow-scheduler, airflow-init,
+neo-app, api-server) declare depends_on: postgres: condition: service_healthy,
+instructing Docker Compose to delay container startup until PostgreSQL is
+accepting connections. Without this health check gate, Airflow's database
+migration (run by airflow-init) could fail if Postgres is still initialising,
+causing the entire stack to fail to start.
+
+The Airflow webserver exposes its own health check via curl:
+
+  test: ["CMD", "curl", "--fail", "http://localhost:8080/airflow/health"]
+  interval: 10s
+  timeout: 10s
+  retries: 5
+
+The health endpoint path is /airflow/health rather than /health because
+AIRFLOW__WEBSERVER__BASE_URL is set to http://localhost/airflow, which causes
+Airflow to mount its Flask application under the /airflow sub-path — including
+its /health endpoint. A health check targeting /health alone returns HTTP 404
+and marks the container perpetually unhealthy.
+
+This enables Docker's health status tracking of the Airflow API surface.
+
+13.7  Nginx Reverse Proxy and Unified Entry Point
+──────────────────────────────────────────────────
+
+13.7.1  Motivation
+
+In the absence of a dedicated ingress layer, each service exposes its own host
+port: port 3000 for the Next.js frontend, port 8000 for the FastAPI server, and
+port 8080 for the Airflow webserver. Whilst this is acceptable during local
+development, it presents several operational drawbacks in a production-oriented
+deployment:
+
+  (i)   Consumers must remember distinct port numbers for different services,
+        creating unnecessary cognitive overhead and complicating documentation.
+  (ii)  Browser Same-Origin Policy restrictions may require cross-origin request
+        handling (CORS) to be configured at the API layer, introducing additional
+        security surface area and boilerplate.
+  (iii) Adding TLS termination, rate limiting, or request logging in future would
+        require changes to multiple services rather than a single gateway.
+
+To address these concerns, a dedicated Nginx reverse proxy (nginx:alpine) is
+introduced as the seventh service. Nginx listens exclusively on host port 80 and
+routes incoming requests to the appropriate upstream service based on URL path
+prefix, presenting the entire platform as a single unified origin to external
+clients.
+
+13.7.2  Path-Based Routing Strategy
+
+Three upstream blocks are defined in nginx.conf, each mapping a logical service
+name to its Docker Compose internal hostname and port:
+
+  upstream neo_app          { server neo-app:3000;          }
+  upstream api_server       { server api-server:8000;       }
+  upstream airflow_webserver{ server airflow-webserver:8080; }
+
+Within the Docker Compose network, all services are addressable by their service
+name as the hostname; no external DNS resolution is required. The server block
+listens on port 80 and defines three location directives, evaluated in priority
+order:
+
+  Path Prefix   Upstream             Behaviour
+  ────────────  ───────────────────  ───────────────────────────────────────
+  /api/         api-server:8000      /api/ prefix stripped before forwarding
+  /airflow/     airflow-webserver:8080  Full /airflow/ prefix preserved
+  /             neo-app:3000         Catch-all; no prefix modification
+
+The specificity of location matching in Nginx ensures that the more specific
+/api/ and /airflow/ prefixes are evaluated before the catch-all / block,
+regardless of their declaration order. This routing topology means that:
+
+  - http://localhost/           serves the Next.js web application
+  - http://localhost/api/       serves the FastAPI prediction endpoints
+  - http://localhost/airflow/   serves the Airflow web interface
+
+13.7.3  Path Handling and proxy_pass Configuration
+
+The two non-catch-all upstreams use different forwarding strategies because the
+upstream applications have different route layouts.
+
+FastAPI — prefix stripping:
+
+When a location block and its proxy_pass directive both end with a trailing
+slash, Nginx replaces the matched prefix with the proxy target root:
+
+  location /api/ {
+      proxy_pass http://api_server/;
+  }
+
+A client request for GET /api/predict is forwarded to the upstream as
+GET /predict. This stripping is essential: the FastAPI application defines
+routes at root-relative paths (/predict, /neo/stats, etc.) and has no
+knowledge of the /api/ prefix introduced by the proxy layer.
+
+Airflow — prefix preservation:
+
+Airflow is configured with AIRFLOW__WEBSERVER__BASE_URL=http://localhost/airflow,
+which causes its Flask application to mount all routes under the /airflow/
+sub-path. The proxy_pass directive must therefore preserve the /airflow/ prefix
+when forwarding, not strip it:
+
+  location = /airflow {
+      return 301 /airflow/;
+  }
+
+  location /airflow/ {
+      proxy_pass http://airflow_webserver/airflow/;
+  }
+
+By specifying /airflow/ as both the location prefix and the proxy_pass URI path,
+Nginx substitutes /airflow/ for /airflow/, leaving the full path intact. A
+request for GET /airflow/login is forwarded as GET /airflow/login. The exact
+match block for /airflow (no trailing slash) issues an explicit 301 redirect to
+/airflow/ rather than relying on Nginx's internal trailing-slash redirect
+mechanism, which was observed to interfere with the bind-mounted configuration
+during hot-reload.
+
+Additionally, proxy_redirect is set on the Airflow location to rewrite any
+absolute Location headers generated by Airflow that contain the internal
+hostname and port (airflow-webserver:8080) to the Nginx-facing origin, ensuring
+that browser redirects during login and navigation do not bypass the proxy.
+
+13.7.4  Proxy Header Propagation
+
+Each location block propagates a standard set of proxy headers to the upstream
+service:
+
+  proxy_set_header Host              $host;
+  proxy_set_header X-Real-IP         $remote_addr;
+  proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+
+These headers allow upstream applications to reconstruct the original request
+context (client IP address, originating protocol) when generating absolute URLs,
+log entries, or audit records. The Next.js location block additionally sets the
+Upgrade and Connection headers to support WebSocket connections, which Next.js
+uses for its Hot Module Replacement (HMR) feature during development and for
+server-sent events in production.
+
+13.7.5  Airflow Sub-Path Deployment Requirement
+
+For Nginx to forward Airflow requests correctly, the Airflow webserver must be
+informed of its effective base URL so that all internally generated absolute URLs
+— login redirects, static asset references, DAG links — include the /airflow/
+prefix.
+
+This is achieved by setting the AIRFLOW__WEBSERVER__BASE_URL environment variable
+in the shared Airflow configuration block:
+
+  AIRFLOW__WEBSERVER__BASE_URL: 'http://localhost/airflow'
+
+Without this setting, Airflow generates root-relative internal links (e.g.,
+/login, /static/...) that the browser resolves against the Nginx origin as bare
+paths. Since Nginx's /airflow/ location would not match these bare paths, they
+would be inadvertently forwarded to the Next.js upstream, resulting in 404 errors
+for Airflow's static assets and broken authentication redirects. Setting the
+base URL aligns Airflow's link generation with the proxy topology.
+
+13.7.6  Build-Time Implications for the Next.js Frontend
+
+Next.js distinguishes between two categories of environment variable at build
+time: variables prefixed with NEXT_PUBLIC_ are statically inlined into the
+client-side JavaScript bundle at compilation time, whilst unprefixed variables
+remain server-side secrets available only to Node.js server routes.
+
+The API base URL used by browser-side fetch calls is NEXT_PUBLIC_API_URL. Because
+this variable is baked into the bundle at build time, its value must reflect the
+URL that the browser will use — which is now the Nginx-proxied path rather than
+the raw upstream port. Consequently, the docker-compose.yml build argument is
+updated from:
+
+  NEXT_PUBLIC_API_URL: http://localhost:8000   (direct to api-server, pre-Nginx)
+
+to:
+
+  NEXT_PUBLIC_API_URL: http://localhost/api    (via Nginx reverse proxy)
+
+Similarly, NEXTAUTH_URL — the canonical base URL used by NextAuth.js for OAuth
+callback resolution and CSRF cookie domain binding — is updated from
+http://localhost:3000 to http://localhost to match the Nginx-unified origin.
+These changes require a rebuild of the neo-app image (docker compose up --build
+neo-app) to take effect, as the old values were embedded in the prior build's
+compiled JavaScript bundle.
+
+13.7.7  Docker Compose Service Definition
+
+The Nginx service requires no custom image build. The official nginx:alpine image
+is used directly, with the nginx.conf file bind-mounted as a read-only volume:
+
+  nginx:
+    image: nginx:alpine
+    container_name: neo-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - neo-app
+      - api-server
+      - airflow-webserver
+    restart: unless-stopped
+
+The :ro (read-only) flag on the volume mount prevents any process inside the
+container from modifying the configuration file, enforcing configuration
+immutability as an operational invariant. The depends_on declarations ensure that
+Nginx does not start until all three upstream containers are running. While this
+does not guarantee that the upstream applications are ready to accept connections
+(that would require health-check conditions), it prevents Nginx from issuing
+connection-refused errors during the initial startup window.
+
+The nginx:alpine image adds approximately 23 MB to the total deployment footprint,
+making it one of the most cost-effective infrastructure additions available.
+
+13.7.8  Operational Benefits
+
+The introduction of Nginx as a unified entry point yields several concrete
+operational improvements:
+
+  Simplified access:  All services are reachable through a single hostname and
+                      port (http://localhost:80), eliminating port-specific URLs
+                      from user-facing documentation.
+
+  CORS elimination:   With the browser now sending all requests to the same
+                      origin (http://localhost), the browser's Same-Origin Policy
+                      applies uniformly. Cross-origin headers are no longer
+                      required between the Next.js frontend and the FastAPI
+                      backend, reducing the CORS attack surface.
+
+  Centralised TLS:    Upgrading to HTTPS requires only a single TLS certificate
+                      and a single Nginx configuration change, rather than TLS
+                      configuration at each upstream service.
+
+  Observability:      Nginx's access_log provides a unified audit trail of all
+                      requests across services in a single log stream, simplifying
+                      operational monitoring.
+
+  Load distribution:  The upstream block syntax supports multiple server entries,
+                      enabling horizontal scaling of any upstream service without
+                      modifying client-facing URLs.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. MLOPS PRINCIPLES APPLIED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This section reflects on the MLOps principles applied throughout the system design
+and contrasts them with less rigorous alternatives.
+
+14.1  Reproducibility
+──────────────────────
+
+Every source of randomness in the pipeline is seeded with RANDOM_STATE = 42:
+the train-validation-test split (random_state=42), SMOTE oversampling
+(random_state=42), cross-validation shuffling (random_state=42), all model
+constructors, and the Optuna TPE sampler. This ensures that executing the pipeline
+from scratch on the same input data produces identical splits, identical trained
+models, and identical evaluation metrics.
+
+The Docker Compose setup reinforces reproducibility at the infrastructure level:
+all dependencies are pinned (via requirements.txt version specifiers or Docker
+image tags), and the build process is deterministic given a fixed package
+registry state. Any developer who clones the repository and runs docker compose
+up --build will obtain a functionally identical deployment.
+
+14.2  Data Leakage Prevention
+──────────────────────────────
+
+Data leakage is the single most common source of inflated performance metrics in
+published ML work. The system applies three categories of leakage prevention:
+
+  Target Leakage: The sentry_object column is dropped before any modelling
+  because it directly encodes information that determines the target label
+  (hazardous). Including it would allow the model to learn a nearly perfect
+  rule (if sentry_object is True, predict hazardous) that fails completely
+  when applied to new data.
+
+  Temporal Leakage via Scaler Fitting: StandardScaler is fitted exclusively on
+  the training partition. Fitting on the combined train+validation+test data
+  would allow information about the test distribution's mean and variance to
+  influence the feature representations used during training, producing
+  optimistic metrics that do not generalise.
+
+  Evaluation Leakage via SMOTE: SMOTE is applied before the validation and test
+  sets are used for evaluation. Any SMOTE applied after the split must be
+  confined to the training portion only. The system correctly applies SMOTE
+  solely to X_clf_train, not to X_clf_val or X_clf_test.
+
+14.3  Pipeline Modularity and Rerunability
+───────────────────────────────────────────
+
+The seven-DAG architecture ensures that each pipeline stage can be rerun
+independently without requiring upstream stages to re-execute. This is critical
+in practice: if hyperparameter tuning (DAG 5) produces unsatisfactory results,
+the practitioner can modify the search space and rerun DAG 5 without repeating
+the 40–70 minute model training of DAG 3. If the raw dataset is updated, only
+DAG 0 and DAG 1 need to rerun; the trained models from DAG 3 onwards can be
+reused if the feature schema has not changed.
+
+This modularity is enforced by the persistence-first design: every DAG writes
+its outputs to disk or database before completing, so downstream DAGs read from
+persistent storage rather than from in-memory state passed between tasks.
+
+14.4  Sealed Test Set Protocol
+────────────────────────────────
+
+The test set (15% of the full dataset, 13,626 records) is touched exactly twice
+in the entire pipeline:
+
+  First contact (DAG 4): All baseline models are evaluated to select the best
+  classifier and regressor. This is technically more than one model's contact
+  with the test set, which creates a mild selection bias — the selected model
+  will tend to perform slightly better on this test set than on truly unseen data.
+  However, this is standard practice and the bias is small given only three
+  models per task.
+
+  Second contact (DAG 5): The tuned models are evaluated to confirm that tuning
+  improved performance over the baseline. The results of this evaluation are
+  reported as the final published metrics.
+
+Crucially, no hyperparameter decisions or model architecture choices are made
+based on test set performance. All tuning decisions are made against the
+validation set. This preserves the test set as an approximately unbiased
+estimator of generalisation performance.
+
+14.5  Artifact Versioning and Traceability
+───────────────────────────────────────────
+
+Every production artifact is accompanied by model_metadata.json, which records:
+
+  - The timestamp of artifact creation (trained_at)
+  - The full hyperparameter configuration of both models
+  - All test-set evaluation metrics
+  - The pipeline trace string identifying the DAG sequence that produced the artifacts
+
+This metadata enables full traceability: given any prediction returned by the
+API, the model_metadata.json file provides a complete audit trail of the training
+conditions that produced the serving model. In a more mature MLOps setup, this
+metadata would be stored in a dedicated model registry (e.g., MLflow) with
+version numbers, but the JSON file approach provides the core traceability
+property.
+
+14.6  Smoke Testing and Deployment Validation
+──────────────────────────────────────────────
+
+The smoke test in DAG 6 implements the principle that a model should not be
+promoted to production without an end-to-end validation step. This is directly
+analogous to the deployment smoke tests used in continuous delivery pipelines
+for software services. The specific failure modes the smoke test catches —
+corrupted joblib files, shape mismatches, NaN propagation — are precisely the
+failure modes most likely to occur during refactoring or version updates, making
+it the most valuable quality gate in the pipeline despite being the cheapest
+to execute (< 2 minutes runtime).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. LIMITATIONS AND FUTURE WORK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+15.1  Dataset Limitations
+──────────────────────────
+
+The static nature of the dataset — a fixed snapshot of the NASA catalogue rather
+than a continuously updating stream — means that the system does not address
+data drift, the degradation of model performance as the underlying data
+distribution shifts over time. A production deployment monitoring live asteroid
+observations would require scheduled retraining triggered by drift detection
+on the incoming data stream.
+
+The available features are limited to encounter-time observables. Orbital
+elements (semi-major axis, eccentricity, inclination) would substantially
+improve regression performance by providing the physical basis for miss distance
+prediction, but are not available in this dataset.
+
+15.2  Model Limitations
+────────────────────────
+
+The regression model's R² of 0.1657 indicates that miss distance prediction from
+encounter statistics alone is fundamentally limited. While the model's predictions
+carry meaningful information (R² > 0 confirms it is learning a non-trivial
+relationship), the practical utility of the regression output should be
+communicated carefully to users to avoid overconfidence in the predictions.
+
+The classification model was selected from only three algorithm families. Deep
+learning architectures (tabular-specific transformers such as TabNet or FT-
+Transformer) and boosting libraries with higher engineering ceilings (XGBoost,
+LightGBM, CatBoost) were not evaluated. These represent natural extensions of
+the baseline model comparison in DAG 3.
+
+15.3  MLOps Infrastructure Limitations
+────────────────────────────────────────
+
+The current deployment runs on a single Docker Compose host. Scaling to multiple
+nodes would require migrating from LocalExecutor to CeleryExecutor or
+KubernetesExecutor in Airflow, and introducing a load balancer in front of the
+API server.
+
+The system lacks a dedicated experiment tracking tool (MLflow, Weights & Biases)
+for logging hyperparameter trial results, training curves, and model comparisons.
+The current approach persists metrics to JSON files, which is functional but lacks
+the queryability and visualisation capabilities of a dedicated experiment registry.
+
+Model monitoring — the detection of performance degradation after deployment —
+is not implemented. In a live system, monitoring would compare the distribution
+of incoming prediction requests against the training distribution and alert on
+significant deviations.
+
+15.4  Future Work
+──────────────────
+
+  1. Drift Detection and Scheduled Retraining: Implement evidently or similar
+     libraries to monitor input feature distributions and trigger DAG re-execution
+     when drift exceeds a defined threshold.
+
+  2. Expanded Model Comparison: Add XGBoost, LightGBM, and CatBoost to the
+     baseline comparison in DAG 3. Include neural network architectures (MLP,
+     TabNet) for a comprehensive algorithm evaluation.
+
+  3. MLflow Integration: Instrument DAG 3, 4, and 5 to log all experiments,
+     metrics, and artifacts to an MLflow tracking server, replacing the manual
+     JSON file approach.
+
+  4. Kubernetes Deployment: Migrate the Docker Compose deployment to a Helm
+     chart for Kubernetes, enabling horizontal scaling of the API server and
+     resilient scheduling of Airflow DAGs.
+
+  5. Orbital Elements Integration: Investigate combining the current encounter-
+     time features with orbital element data to assess whether regression
+     performance can be substantially improved.
+
+  6. API Authentication: Add API key or OAuth2 token authentication to the
+     FastAPI server to restrict access to authorised clients in production.
+
+  7. Continuous Integration: Implement GitHub Actions workflows to run a
+     lightweight test suite on each pull request, validating DAG imports, API
+     endpoint contracts, and critical preprocessing logic.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. CONCLUSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This paper has presented Space Search, a comprehensive MLOps platform for
+automated Near-Earth Object hazard classification and miss distance prediction.
+The system demonstrates that the principles of production machine learning
+engineering — reproducibility, leakage prevention, modular orchestration, sealed
+test evaluation, and deployment validation — can be applied rigorously to a
+real-world scientific dataset within a self-contained, containerised architecture.
+
+The core technical contributions of the work are: a seven-DAG Airflow pipeline
+that automates the complete ML lifecycle with strict separation of concerns; a
+leakage-free preprocessing pipeline that applies SMOTE, stratified splitting, and
+StandardScaler with correct fitting scope; a systematic model selection protocol
+combining validation-set comparison, cross-validation stability analysis, and
+sealed test-set evaluation; Optuna TPE-based hyperparameter optimisation producing
+a tuned GradientBoostingRegressor; a smoke-tested artifact promotion gate; and a
+production FastAPI service that replicates the training feature engineering exactly
+for inference-time consistency.
+
+The classification model achieves a weighted F1-score of 0.9039 and AUC-ROC of
+0.9145 on the held-out test set, representing a substantial improvement over a
+naive majority-class baseline (accuracy ~81.5%, F1 ~0.75) and validating the
+effectiveness of the SMOTE balancing strategy. The regression model's R² of 0.1657
+is interpreted as the expected result of predicting miss distance from encounter
+statistics alone, without access to the orbital elements that physically determine
+closest approach distances.
+
+Beyond the specific performance numbers, the primary value of this work lies in
+its architecture: a system that any practitioner can clone, build with a single
+command, and either reuse for similar tabular ML tasks or extend with additional
+data sources, models, and infrastructure components. The modular DAG design, typed
+API surface, containerised deployment, and comprehensive artifact metadata
+collectively exemplify the engineering discipline that separates production ML
+systems from one-off analytical notebooks.
+
+The limitations identified in Section 15 — static dataset, limited algorithm
+coverage, absence of experiment tracking and model monitoring — represent natural
+extensions rather than fundamental flaws, and they map directly onto the open
+research problems in applied MLOps: data drift detection, automated retraining,
+and production model observability. Addressing these extensions would yield a
+system approaching the maturity of industrial ML platforms, while the current
+implementation already satisfies the core requirements of a production-grade
+MLOps deployment.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+17. REFERENCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Akiba, T., Sano, S., Yanase, T., Ohta, T., & Koyama, M. (2019). Optuna: A
+    next-generation hyperparameter optimization framework. In Proceedings of the
+    25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining
+    (pp. 2623–2631). https://doi.org/10.1145/3292500.3330701
+
+Apache Software Foundation. (2023). Apache Airflow documentation (version 2.7).
+    https://airflow.apache.org/docs/apache-airflow/2.7.1/
+
+Bergstra, J., Bardenet, R., Bengio, Y., & Kégl, B. (2011). Algorithms for
+    hyper-parameter optimization. In Advances in Neural Information Processing
+    Systems (NIPS 2011), Vol. 24 (pp. 2546–2554).
+
+Breiman, L. (2001). Random forests. Machine Learning, 45(1), 5–32.
+    https://doi.org/10.1023/A:1010933404324
+
+Carliles, S., Budavári, T., Heinis, S., Priebe, C., & Szalay, A. S. (2010).
+    Random forests for photometric redshifts. The Astrophysical Journal, 712(1),
+    511–515. https://doi.org/10.1088/0004-637X/712/1/511
+
+Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE:
+    Synthetic minority over-sampling technique. Journal of Artificial Intelligence
+    Research, 16, 321–357. https://doi.org/10.1613/jair.953
+
+Dieleman, S., Willett, K. W., & Dambre, J. (2015). Rotation-invariant
+    convolutional neural networks for galaxy morphology prediction. Monthly
+    Notices of the Royal Astronomical Society, 450(2), 1441–1459.
+    https://doi.org/10.1093/mnras/stv632
+
+Djorgovski, S. G., Mahabal, A., Brunner, R., Gal, R., Williams, R., Granat, R.,
+    & Stolorz, P. (2001). Sky surveys and the virtual observatory. In Proceedings
+    of the SPIE Conference on Astronomical Telescopes and Instrumentation,
+    Vol. 4477, pp. 43–53.
+
+Friedman, J. H. (2001). Greedy function approximation: A gradient boosting
+    machine. Annals of Statistics, 29(5), 1189–1232.
+    https://doi.org/10.1214/aos/1013203451
+
+Grinsztajn, L., Oyallon, E., & Varoquaux, G. (2022). Why tree-based models still
+    outperform deep learning on tabular data. In Advances in Neural Information
+    Processing Systems (NeurIPS 2022), Vol. 35.
+    https://doi.org/10.48550/arXiv.2207.08815
+
+Lemaître, G., Nogueira, F., & Aridas, C. K. (2017). Imbalanced-learn: A Python
+    toolbox to tackle the curse of imbalanced datasets in machine learning.
+    Journal of Machine Learning Research, 18(17), 1–5.
+
+NASA Centre for Near Earth Object Studies. (2026). NEO basics.
+    https://cneos.jpl.nasa.gov/about/neo_groups.html
+
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O.,
+    … Duchesnay, É. (2011). Scikit-learn: Machine learning in Python. Journal of
+    Machine Learning Research, 12, 2825–2830.
+
+Sculley, D., Holt, G., Golovin, D., Davydov, E., Phillips, T., Ebner, D., …
+    Dennison, D. (2015). Hidden technical debt in machine learning systems.
+    In Advances in Neural Information Processing Systems (NIPS 2015), Vol. 28.
+
+Verma, A., & Bhatt, U. (2022). MLOps: A survey of best practices. ACM Computing
+    Surveys. https://doi.org/10.1145/3522690
+
+
+================================================================================
+                               END OF PAPER
+================================================================================
