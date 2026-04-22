@@ -1443,21 +1443,27 @@ Input validation operates at two levels:
 10.6  CORS and Cross-Origin Policy
 ────────────────────────────────────
 
-Cross-Origin Resource Sharing (CORS) middleware is configured to allow requests
-from http://localhost:3000, which is the address of the Next.js frontend in the
-local Docker Compose deployment:
+Cross-Origin Resource Sharing (CORS) middleware is configured to permit requests
+from two origins: the Nginx-unified entry point and the direct Next.js port used
+during local development outside Docker:
 
   app.add_middleware(
       CORSMiddleware,
-      allow_origins=["http://localhost:3000"],
+      allow_origins=["http://localhost:3000", "http://localhost"],
       allow_methods=["*"],
       allow_headers=["*"],
   )
 
-This permits the browser-side Next.js application to make cross-origin fetch
-requests to the API without being blocked by the browser's same-origin policy.
-In a production deployment with custom domains, the allow_origins list would be
-updated to include the production frontend URL.
+When the full Docker Compose stack is running, the browser loads the frontend
+from http://localhost (port 80, via Nginx) and the API is served at
+http://localhost/api — both on the same origin, so the browser does not issue
+CORS preflight requests and the middleware is effectively bypassed. The
+http://localhost origin in the list covers this path. The http://localhost:3000
+entry is retained for the development scenario where a developer runs the
+Next.js application directly via npm run dev (outside Docker), in which case the
+frontend is served from port 3000 while the API is accessed through Nginx on
+port 80, making them distinct origins. In a production deployment the
+allow_origins list would be updated to the production frontend domain.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1536,7 +1542,7 @@ TypeScript. This combination was selected for the following reasons:
 The lib/api.ts module implements a typed HTTP client wrapping the browser's
 native fetch API:
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost/api";
 
   async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       const res = await fetch(`${API_BASE}${path}`, {...init,
@@ -1687,9 +1693,26 @@ pinned versions, allowing compatible updates while maintaining API stability.
 The API server image is built from api-server/Dockerfile using python:3.11-slim
 as the base. The slim variant omits documentation files and test data from the
 standard python image, reducing image size by approximately 200 MB. Dependencies
-are installed from a clean, minimal requirements.txt specifying only the eight
-runtime dependencies (fastapi, uvicorn, joblib, pandas, numpy, scikit-learn,
-pydantic, python-dotenv).
+are installed from a clean, minimal requirements.txt specifying nine runtime
+packages: fastapi, uvicorn, joblib, pandas, numpy, scikit-learn, pydantic,
+python-dotenv, and dill.
+
+All numeric library versions are pinned to exact values that match the Airflow
+training environment in which the model artifacts were serialised:
+
+  scikit-learn==1.3.2   (matches Airflow container; avoids InconsistentVersionWarning)
+  joblib==1.4.2         (matches Airflow container)
+  numpy==1.24.4         (matches Airflow container)
+  pandas==2.0.3         (matches Airflow container)
+  dill==0.3.1.1         (required to deserialise joblib artifacts that embed dill-pickled objects)
+
+The dill package is a critical dependency: the .joblib artifact files produced by
+the Airflow training pipeline contain objects serialised via dill (pulled in
+transitively by the Airflow environment). Without dill installed in the serving
+container, joblib raises ModuleNotFoundError during the lifespan startup phase,
+preventing the server from starting. The version is pinned to match the dill
+version present in the training environment to ensure pickle format
+compatibility.
 
 13.4  Next.js Multi-Stage Build
 ─────────────────────────────────
@@ -1697,13 +1720,13 @@ pydantic, python-dotenv).
 The Next.js Dockerfile employs a three-stage build to minimise the final image
 size:
 
-  Stage 1 — deps (node:20-alpine):
+  Stage 1 — deps (node:22-alpine):
     Installs all npm dependencies via npm ci (clean install from package-lock.json,
     producing a reproducible node_modules directory). This stage is cached by
     Docker if package.json and package-lock.json are unchanged, avoiding
     reinstallation on every code change.
 
-  Stage 2 — builder (node:20-alpine):
+  Stage 2 — builder (node:22-alpine):
     Copies node_modules from the deps stage, copies all source files, and runs:
       1. npx prisma generate — generates the typed Prisma client from schema.prisma
       2. npm run build — compiles TypeScript, bundles the application, and
@@ -1715,7 +1738,7 @@ size:
     client-side bundle. DATABASE_URL is set to the Docker-internal Postgres
     address for use by prisma generate.
 
-  Stage 3 — runner (node:20-alpine):
+  Stage 3 — runner (node:22-alpine):
     Copies only the standalone server bundle (.next/standalone/), static assets
     (.next/static/), and the public/ directory from the builder stage. The full
     node_modules directory (typically 300–500 MB) is not copied, as the standalone
@@ -1759,10 +1782,16 @@ causing the entire stack to fail to start.
 
 The Airflow webserver exposes its own health check via curl:
 
-  test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+  test: ["CMD", "curl", "--fail", "http://localhost:8080/airflow/health"]
   interval: 10s
   timeout: 10s
   retries: 5
+
+The health endpoint path is /airflow/health rather than /health because
+AIRFLOW__WEBSERVER__BASE_URL is set to http://localhost/airflow, which causes
+Airflow to mount its Flask application under the /airflow sub-path — including
+its /health endpoint. A health check targeting /health alone returns HTTP 404
+and marks the container perpetually unhealthy.
 
 This enables Docker's health status tracking of the Airflow API surface.
 
@@ -1796,7 +1825,7 @@ clients.
 Three upstream blocks are defined in nginx.conf, each mapping a logical service
 name to its Docker Compose internal hostname and port:
 
-  upstream neo_app          { server neo-app:8000;          }
+  upstream neo_app          { server neo-app:3000;          }
   upstream api_server       { server api-server:8000;       }
   upstream airflow_webserver{ server airflow-webserver:8080; }
 
@@ -1807,9 +1836,9 @@ order:
 
   Path Prefix   Upstream             Behaviour
   ────────────  ───────────────────  ───────────────────────────────────────
-  /api/         api-server:8000      Prefix is stripped before forwarding
-  /airflow/     airflow-webserver:8080  Prefix is stripped before forwarding
-  /             neo-app:3000         Catch-all; no prefix stripping
+  /api/         api-server:8000      /api/ prefix stripped before forwarding
+  /airflow/     airflow-webserver:8080  Full /airflow/ prefix preserved
+  /             neo-app:3000         Catch-all; no prefix modification
 
 The specificity of location matching in Nginx ensures that the more specific
 /api/ and /airflow/ prefixes are evaluated before the catch-all / block,
@@ -1819,21 +1848,52 @@ regardless of their declaration order. This routing topology means that:
   - http://localhost/api/       serves the FastAPI prediction endpoints
   - http://localhost/airflow/   serves the Airflow web interface
 
-13.7.3  Path Stripping and proxy_pass Configuration
+13.7.3  Path Handling and proxy_pass Configuration
 
-When a location block ends with a trailing slash and its proxy_pass directive
-also ends with a trailing slash, Nginx replaces the matched prefix with the
-proxy target root before forwarding. For example:
+The two non-catch-all upstreams use different forwarding strategies because the
+upstream applications have different route layouts.
+
+FastAPI — prefix stripping:
+
+When a location block and its proxy_pass directive both end with a trailing
+slash, Nginx replaces the matched prefix with the proxy target root:
 
   location /api/ {
       proxy_pass http://api_server/;
   }
 
-A client request for GET /api/predict/single is forwarded to the upstream as
-GET /predict/single. This stripping is essential for compatibility with the
-FastAPI application, whose route definitions use root-relative paths (/predict,
-/health, /dataset/summary, etc.) and have no knowledge of the /api/ prefix
-introduced by the proxy layer. An equivalent pattern is applied to /airflow/.
+A client request for GET /api/predict is forwarded to the upstream as
+GET /predict. This stripping is essential: the FastAPI application defines
+routes at root-relative paths (/predict, /neo/stats, etc.) and has no
+knowledge of the /api/ prefix introduced by the proxy layer.
+
+Airflow — prefix preservation:
+
+Airflow is configured with AIRFLOW__WEBSERVER__BASE_URL=http://localhost/airflow,
+which causes its Flask application to mount all routes under the /airflow/
+sub-path. The proxy_pass directive must therefore preserve the /airflow/ prefix
+when forwarding, not strip it:
+
+  location = /airflow {
+      return 301 /airflow/;
+  }
+
+  location /airflow/ {
+      proxy_pass http://airflow_webserver/airflow/;
+  }
+
+By specifying /airflow/ as both the location prefix and the proxy_pass URI path,
+Nginx substitutes /airflow/ for /airflow/, leaving the full path intact. A
+request for GET /airflow/login is forwarded as GET /airflow/login. The exact
+match block for /airflow (no trailing slash) issues an explicit 301 redirect to
+/airflow/ rather than relying on Nginx's internal trailing-slash redirect
+mechanism, which was observed to interfere with the bind-mounted configuration
+during hot-reload.
+
+Additionally, proxy_redirect is set on the Airflow location to rewrite any
+absolute Location headers generated by Airflow that contain the internal
+hostname and port (airflow-webserver:8080) to the Nginx-facing origin, ensuring
+that browser redirects during login and navigation do not bypass the proxy.
 
 13.7.4  Proxy Header Propagation
 
@@ -1854,10 +1914,10 @@ server-sent events in production.
 
 13.7.5  Airflow Sub-Path Deployment Requirement
 
-Nginx path stripping resolves the routing concern, but introduces a subtler
-requirement for the Airflow webserver: Airflow must be informed of its effective
-base URL so that all internally generated absolute URLs — login redirects, static
-asset references, DAG links — include the /airflow/ prefix.
+For Nginx to forward Airflow requests correctly, the Airflow webserver must be
+informed of its effective base URL so that all internally generated absolute URLs
+— login redirects, static asset references, DAG links — include the /airflow/
+prefix.
 
 This is achieved by setting the AIRFLOW__WEBSERVER__BASE_URL environment variable
 in the shared Airflow configuration block:
