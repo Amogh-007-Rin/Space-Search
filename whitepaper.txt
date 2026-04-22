@@ -136,6 +136,7 @@ TABLE OF CONTENTS
         13.4  Next.js Multi-Stage Build
         13.5  Volume Strategy and Data Sharing
         13.6  Health Checks and Service Dependencies
+        13.7  Nginx Reverse Proxy and Unified Entry Point
   14. MLOps Principles Applied
         14.1  Reproducibility
         14.2  Data Leakage Prevention
@@ -1644,7 +1645,7 @@ source data.
 13.1  Docker Compose Service Topology
 ───────────────────────────────────────
 
-The full system is described in a single docker-compose.yml file defining six
+The full system is described in a single docker-compose.yml file defining seven
 services:
 
   Service              Image                     Port   Role
@@ -1655,12 +1656,14 @@ services:
   airflow-init         built from airflow/          —    DB migration + admin user
   neo-app              built from neo-app/        3000   Next.js frontend
   api-server           built from api-server/     8000   FastAPI prediction server
+  nginx                nginx:alpine                 80   Reverse proxy / entry point
 
 The three Airflow services share a common configuration via a YAML anchor
 (x-airflow-common), which defines the build context, environment variables,
 volume mounts, and dependency on postgres. This eliminates duplication and ensures
 that changes to shared configuration (e.g., database connection strings) are made
-in a single place.
+in a single place. Nginx sits in front of all three user-facing services and is
+the sole host-exposed entry point for HTTP traffic.
 
 13.2  Custom Airflow Image
 ───────────────────────────
@@ -1762,6 +1765,193 @@ The Airflow webserver exposes its own health check via curl:
   retries: 5
 
 This enables Docker's health status tracking of the Airflow API surface.
+
+13.7  Nginx Reverse Proxy and Unified Entry Point
+──────────────────────────────────────────────────
+
+13.7.1  Motivation
+
+In the absence of a dedicated ingress layer, each service exposes its own host
+port: port 3000 for the Next.js frontend, port 8000 for the FastAPI server, and
+port 8080 for the Airflow webserver. Whilst this is acceptable during local
+development, it presents several operational drawbacks in a production-oriented
+deployment:
+
+  (i)   Consumers must remember distinct port numbers for different services,
+        creating unnecessary cognitive overhead and complicating documentation.
+  (ii)  Browser Same-Origin Policy restrictions may require cross-origin request
+        handling (CORS) to be configured at the API layer, introducing additional
+        security surface area and boilerplate.
+  (iii) Adding TLS termination, rate limiting, or request logging in future would
+        require changes to multiple services rather than a single gateway.
+
+To address these concerns, a dedicated Nginx reverse proxy (nginx:alpine) is
+introduced as the seventh service. Nginx listens exclusively on host port 80 and
+routes incoming requests to the appropriate upstream service based on URL path
+prefix, presenting the entire platform as a single unified origin to external
+clients.
+
+13.7.2  Path-Based Routing Strategy
+
+Three upstream blocks are defined in nginx.conf, each mapping a logical service
+name to its Docker Compose internal hostname and port:
+
+  upstream neo_app          { server neo-app:8000;          }
+  upstream api_server       { server api-server:8000;       }
+  upstream airflow_webserver{ server airflow-webserver:8080; }
+
+Within the Docker Compose network, all services are addressable by their service
+name as the hostname; no external DNS resolution is required. The server block
+listens on port 80 and defines three location directives, evaluated in priority
+order:
+
+  Path Prefix   Upstream             Behaviour
+  ────────────  ───────────────────  ───────────────────────────────────────
+  /api/         api-server:8000      Prefix is stripped before forwarding
+  /airflow/     airflow-webserver:8080  Prefix is stripped before forwarding
+  /             neo-app:3000         Catch-all; no prefix stripping
+
+The specificity of location matching in Nginx ensures that the more specific
+/api/ and /airflow/ prefixes are evaluated before the catch-all / block,
+regardless of their declaration order. This routing topology means that:
+
+  - http://localhost/           serves the Next.js web application
+  - http://localhost/api/       serves the FastAPI prediction endpoints
+  - http://localhost/airflow/   serves the Airflow web interface
+
+13.7.3  Path Stripping and proxy_pass Configuration
+
+When a location block ends with a trailing slash and its proxy_pass directive
+also ends with a trailing slash, Nginx replaces the matched prefix with the
+proxy target root before forwarding. For example:
+
+  location /api/ {
+      proxy_pass http://api_server/;
+  }
+
+A client request for GET /api/predict/single is forwarded to the upstream as
+GET /predict/single. This stripping is essential for compatibility with the
+FastAPI application, whose route definitions use root-relative paths (/predict,
+/health, /dataset/summary, etc.) and have no knowledge of the /api/ prefix
+introduced by the proxy layer. An equivalent pattern is applied to /airflow/.
+
+13.7.4  Proxy Header Propagation
+
+Each location block propagates a standard set of proxy headers to the upstream
+service:
+
+  proxy_set_header Host              $host;
+  proxy_set_header X-Real-IP         $remote_addr;
+  proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+
+These headers allow upstream applications to reconstruct the original request
+context (client IP address, originating protocol) when generating absolute URLs,
+log entries, or audit records. The Next.js location block additionally sets the
+Upgrade and Connection headers to support WebSocket connections, which Next.js
+uses for its Hot Module Replacement (HMR) feature during development and for
+server-sent events in production.
+
+13.7.5  Airflow Sub-Path Deployment Requirement
+
+Nginx path stripping resolves the routing concern, but introduces a subtler
+requirement for the Airflow webserver: Airflow must be informed of its effective
+base URL so that all internally generated absolute URLs — login redirects, static
+asset references, DAG links — include the /airflow/ prefix.
+
+This is achieved by setting the AIRFLOW__WEBSERVER__BASE_URL environment variable
+in the shared Airflow configuration block:
+
+  AIRFLOW__WEBSERVER__BASE_URL: 'http://localhost/airflow'
+
+Without this setting, Airflow generates root-relative internal links (e.g.,
+/login, /static/...) that the browser resolves against the Nginx origin as bare
+paths. Since Nginx's /airflow/ location would not match these bare paths, they
+would be inadvertently forwarded to the Next.js upstream, resulting in 404 errors
+for Airflow's static assets and broken authentication redirects. Setting the
+base URL aligns Airflow's link generation with the proxy topology.
+
+13.7.6  Build-Time Implications for the Next.js Frontend
+
+Next.js distinguishes between two categories of environment variable at build
+time: variables prefixed with NEXT_PUBLIC_ are statically inlined into the
+client-side JavaScript bundle at compilation time, whilst unprefixed variables
+remain server-side secrets available only to Node.js server routes.
+
+The API base URL used by browser-side fetch calls is NEXT_PUBLIC_API_URL. Because
+this variable is baked into the bundle at build time, its value must reflect the
+URL that the browser will use — which is now the Nginx-proxied path rather than
+the raw upstream port. Consequently, the docker-compose.yml build argument is
+updated from:
+
+  NEXT_PUBLIC_API_URL: http://localhost:8000   (direct to api-server, pre-Nginx)
+
+to:
+
+  NEXT_PUBLIC_API_URL: http://localhost/api    (via Nginx reverse proxy)
+
+Similarly, NEXTAUTH_URL — the canonical base URL used by NextAuth.js for OAuth
+callback resolution and CSRF cookie domain binding — is updated from
+http://localhost:3000 to http://localhost to match the Nginx-unified origin.
+These changes require a rebuild of the neo-app image (docker compose up --build
+neo-app) to take effect, as the old values were embedded in the prior build's
+compiled JavaScript bundle.
+
+13.7.7  Docker Compose Service Definition
+
+The Nginx service requires no custom image build. The official nginx:alpine image
+is used directly, with the nginx.conf file bind-mounted as a read-only volume:
+
+  nginx:
+    image: nginx:alpine
+    container_name: neo-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - neo-app
+      - api-server
+      - airflow-webserver
+    restart: unless-stopped
+
+The :ro (read-only) flag on the volume mount prevents any process inside the
+container from modifying the configuration file, enforcing configuration
+immutability as an operational invariant. The depends_on declarations ensure that
+Nginx does not start until all three upstream containers are running. While this
+does not guarantee that the upstream applications are ready to accept connections
+(that would require health-check conditions), it prevents Nginx from issuing
+connection-refused errors during the initial startup window.
+
+The nginx:alpine image adds approximately 23 MB to the total deployment footprint,
+making it one of the most cost-effective infrastructure additions available.
+
+13.7.8  Operational Benefits
+
+The introduction of Nginx as a unified entry point yields several concrete
+operational improvements:
+
+  Simplified access:  All services are reachable through a single hostname and
+                      port (http://localhost:80), eliminating port-specific URLs
+                      from user-facing documentation.
+
+  CORS elimination:   With the browser now sending all requests to the same
+                      origin (http://localhost), the browser's Same-Origin Policy
+                      applies uniformly. Cross-origin headers are no longer
+                      required between the Next.js frontend and the FastAPI
+                      backend, reducing the CORS attack surface.
+
+  Centralised TLS:    Upgrading to HTTPS requires only a single TLS certificate
+                      and a single Nginx configuration change, rather than TLS
+                      configuration at each upstream service.
+
+  Observability:      Nginx's access_log provides a unified audit trail of all
+                      requests across services in a single log stream, simplifying
+                      operational monitoring.
+
+  Load distribution:  The upstream block syntax supports multiple server entries,
+                      enabling horizontal scaling of any upstream service without
+                      modifying client-facing URLs.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
