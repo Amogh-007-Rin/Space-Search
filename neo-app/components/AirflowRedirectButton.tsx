@@ -3,7 +3,7 @@
 export default function RedirectButton() {
   const handleRedirect = () => {
     // Redirects the browser to the specified URL
-    window.location.href = 'http://localhost:8080';
+    window.location.href = 'http://localhost/airflow';
   };
   const active = false;
   return (
