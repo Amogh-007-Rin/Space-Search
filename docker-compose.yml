@@ -8,7 +8,7 @@ x-airflow-common:
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__WEBSERVER__BASE_URL: 'http://localhost/airflow'
+    AIRFLOW__WEBSERVER__BASE_URL: 'http://reddx.me/airflow'
     AIRFLOW_CONN_NEO_POSTGRES: postgresql://mlops:password123@postgres:5432/mlops
   volumes:
     - ./airflow/dags:/opt/airflow/dags
@@ -69,13 +69,14 @@ services:
     build:
       context: ./neo-app
       args:
-        NEXT_PUBLIC_API_URL: http://localhost/api
+        NEXT_PUBLIC_API_URL: http://reddx.me/api
+        NEXT_PUBLIC_AIRFLOW_URL: http://reddx.me/airflow
     ports:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://mlops:password123@postgres:5432/mlops
       NEXTAUTH_SECRET: neo-prediction-mlops-secret-2026
-      NEXTAUTH_URL: http://localhost
+      NEXTAUTH_URL: http://reddx.me
     depends_on:
       postgres:
         condition: service_healthy
