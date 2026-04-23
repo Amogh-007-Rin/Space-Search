@@ -1,9 +1,10 @@
 'use client'
 
+import { AIRFLOW_URL } from "@/lib/config";
+
 export default function RedirectButton() {
   const handleRedirect = () => {
-    // Redirects the browser to the specified URL
-    window.location.href = 'http://localhost/airflow';
+    window.location.href = AIRFLOW_URL;
   };
   const active = false;
   return (

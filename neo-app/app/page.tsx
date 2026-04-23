@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Appbar from "@/components/Appbar";
 import { api, type NEOStats, type NEORecord } from "@/lib/api";
+import { BACKEND_URL } from "@/lib/config";
 
 function StatCard({
   label,
@@ -153,7 +154,7 @@ export default function DashboardPage() {
           {apiOnline === null
             ? "Connecting to API..."
             : apiOnline
-            ? "API Online — http://localhost:8000"
+            ? `API Online — ${BACKEND_URL}`
             : "API Offline — Start the FastAPI server"}
         </div>
 
@@ -220,7 +221,7 @@ export default function DashboardPage() {
         ) : (
           <div className="card" style={{ textAlign: "center", padding: 40, color: "#475569", marginBottom: 48 }}>
             Could not load statistics — make sure the API server is running at{" "}
-            <code style={{ color: "#3b82f6" }}>localhost:8000</code>
+            <code style={{ color: "#3b82f6" }}>{BACKEND_URL}</code>
           </div>
         )}
 

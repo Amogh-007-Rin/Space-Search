@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
+
+const API_BASE = BACKEND_URL;
 
 export interface NEORecord {
   id: number;
