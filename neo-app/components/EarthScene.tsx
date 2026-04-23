@@ -6,6 +6,7 @@ import { Stars } from "@react-three/drei";
 import * as THREE from "three";
 import { TextureLoader } from "three";
 import { motion } from "framer-motion";
+import { BACKEND_URL } from "@/lib/config";
 
 const EARTH_R   = 2;
 const NEO_TOTAL = 90_836;
@@ -175,7 +176,7 @@ export default function EarthScene() {
   const [liveTotal, setLiveTotal] = useState(NEO_TOTAL);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/neo/stats`)
+    fetch(`${BACKEND_URL}/neo/stats`)
       .then((r) => r.json())
       .then((d) => { if (d?.total_records) setLiveTotal(d.total_records); })
       .catch(() => {});
