@@ -698,3 +698,393 @@ docker exec mlops-v2-airflow-scheduler-1 airflow dags trigger model_extractor
 | `model_parameter_tunner` | 30–60 min |
 | `model_extractor` | < 2 min |
 | **Total (sequential)** | **~100–180 min** |
+
+---
+
+## TASK-06 ##
+
+- Task Context: The Next.js frontend is unable to connect to the FastAPI backend and the Airflow dashboard.
+- Go through the project and fix all connectivity issues between the frontend, FastAPI server, and Airflow dashboard.
+
+## TASK-06 FINISHED NOTES ##
+
+### Issues Found
+
+#### Issue 1 — `docker-compose.yml` & `neo-app/Dockerfile`: Production domain URLs baked into the frontend bundle
+
+**File:** `docker-compose.yml` (lines 72–73) and `neo-app/Dockerfile` (lines 10–13)
+
+The docker-compose passed `http://reddx.me/api` and `http://reddx.me/airflow` as Docker build args for `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_AIRFLOW_URL`. Because Next.js bakes `NEXT_PUBLIC_*` variables into the JavaScript bundle at build time (not runtime), every browser running the app would try to fetch data from the production domain `reddx.me` — even when running locally. If `reddx.me` is not deployed or reachable from the developer's machine, every API call and the Airflow redirect button would fail with a network error.
+
+The same hardcoded fallbacks (`http://localhost:8000` for the API, `http://localhost/airflow` for Airflow) were set in the Dockerfile's `ARG` defaults, meaning manual Docker image builds without passing build args would point the API client directly at port 8000 and bypass nginx entirely.
+
+#### Issue 2 — `nginx.conf`: NextAuth `/api/auth/` routes hijacked by FastAPI
+
+**File:** `nginx.conf` (location `/api/`)
+
+The nginx `/api/` location block matched **all** paths beginning with `/api/`, including `/api/auth/...` which is the NextAuth callback and session route handled by Next.js itself (`app/api/auth/[...nextauth]/route.ts`). nginx forwarded these requests to the FastAPI container, which has no knowledge of authentication routes, causing login/session calls to return 404 or unexpected errors.
+
+#### Issue 3 — `api-server/app.py`: CORS `allow_origins` missing the production domain
+
+**File:** `api-server/app.py` (CORS middleware)
+
+The FastAPI CORS middleware only listed `http://localhost:3000` and `http://localhost` as allowed origins. When the application is deployed at `http://reddx.me` and the browser makes a cross-origin request (e.g., during development when the Next.js dev server runs on a different port, or when the API URL differs from the page origin), requests from `http://reddx.me` or `https://reddx.me` would be blocked by the browser with a CORS error.
+
+---
+
+### Changes Made
+
+#### 1. `docker-compose.yml`
+
+Changed the `neo-app` build args from hardcoded production domain URLs to relative paths:
+
+```yaml
+# Before
+args:
+  NEXT_PUBLIC_API_URL: http://reddx.me/api
+  NEXT_PUBLIC_AIRFLOW_URL: http://reddx.me/airflow
+
+# After
+args:
+  NEXT_PUBLIC_API_URL: /api
+  NEXT_PUBLIC_AIRFLOW_URL: /airflow
+```
+
+Relative paths (`/api`, `/airflow`) work on any host because the browser prepends its current origin. Locally the browser is at `http://localhost`, so `/api/predict` becomes `http://localhost/api/predict`, which nginx routes to the FastAPI container. In production the browser is at `http://reddx.me`, so the same relative path becomes `http://reddx.me/api/predict`. No rebuild is required when switching environments.
+
+#### 2. `neo-app/Dockerfile`
+
+Updated the `ARG` defaults to match the relative-URL approach:
+
+```dockerfile
+# Before
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_AIRFLOW_URL=http://localhost/airflow
+
+# After
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_AIRFLOW_URL=/airflow
+```
+
+This ensures that a manual `docker build` of the neo-app image (without passing build args) also produces a bundle that routes through nginx at `/api/` rather than hitting port 8000 directly.
+
+#### 3. `neo-app/.env` & `neo-app/.env.example`
+
+Updated both files to use relative URLs, consistent with the docker-compose and Dockerfile changes:
+
+```env
+# Before
+NEXT_PUBLIC_API_URL=http://localhost/api
+NEXT_PUBLIC_AIRFLOW_URL=http://localhost/airflow
+
+# After
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_AIRFLOW_URL=/airflow
+```
+
+This ensures `npm run dev` (local Next.js dev server, reading the `.env` file) also uses relative paths, so it works on any machine regardless of the port nginx is on.
+
+#### 4. `nginx.conf`
+
+Added a more-specific `/api/auth/` location block **above** the existing `/api/` block so NextAuth routes are sent to the Next.js container instead of FastAPI:
+
+```nginx
+# Added — must appear before /api/ so nginx matches it first
+location /api/auth/ {
+    proxy_pass         http://neo_app/api/auth/;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade           $http_upgrade;
+    proxy_set_header   Connection        'upgrade';
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+}
+
+# Existing — now only matches non-auth /api/ paths
+location /api/ {
+    proxy_pass http://api_server/;
+    ...
+}
+```
+
+nginx uses longest-prefix matching, so `/api/auth/` takes precedence over `/api/` for all auth-related requests.
+
+#### 5. `api-server/app.py`
+
+Added the production domain to the CORS `allow_origins` list:
+
+```python
+# Before
+allow_origins=["http://localhost:3000", "http://localhost"]
+
+# After
+allow_origins=[
+    "http://localhost:3000",
+    "http://localhost",
+    "http://reddx.me",
+    "https://reddx.me",
+]
+```
+
+This covers both HTTP and HTTPS variants of the production domain so the FastAPI server accepts browser requests from any expected origin.
+
+---
+
+### How to Apply
+
+Rebuild only the neo-app image (the only image whose bundle changed) and restart the stack:
+
+```bash
+docker compose build neo-app
+docker compose up -d
+```
+
+nginx and the api-server pick up their config/code changes automatically on restart without a full rebuild.
+
+---
+
+## TASK-07 ##
+
+- Task Context: Host the application on an AWS EC2 machine and make it publicly accessible at `http://spacesearch.reddx.me`.
+- Document every file change and infrastructure step required to go from local docker-compose to a live AWS deployment.
+
+## TASK-07 FINISHED NOTES ##
+
+### Overview
+
+The application runs entirely inside Docker Compose. Hosting it on AWS requires:
+1. Pointing the subdomain DNS to the EC2 instance
+2. Opening the right ports in the AWS Security Group
+3. Changing four hardcoded values across three project files so the app knows its public URL
+4. Installing Docker on the EC2 instance and starting the stack
+
+---
+
+### Step 1 — Launch and configure the EC2 instance
+
+1. Go to **AWS Console → EC2 → Launch Instance**
+2. Choose **Ubuntu 24.04 LTS** (or Amazon Linux 2023), instance type **t3.medium** or larger (the ML models need RAM)
+3. Create or select a key pair — download the `.pem` file
+4. Under **Network Settings → Security Group**, add the following inbound rules:
+
+| Type | Protocol | Port | Source | Purpose |
+|---|---|---|---|---|
+| SSH | TCP | 22 | Your IP | Remote access |
+| HTTP | TCP | 80 | 0.0.0.0/0 | Public web traffic |
+| Custom TCP | TCP | 8080 | Your IP | Airflow UI direct access (optional) |
+
+> Port 443 (HTTPS) is only needed if you later add an SSL certificate. Leave it closed for now.
+
+5. Launch the instance and note the **public IPv4 address** (e.g. `3.x.x.x`).
+
+---
+
+### Step 2 — Point the subdomain DNS to the EC2 instance
+
+In your DNS provider (wherever `reddx.me` is managed — e.g. Cloudflare, Route 53, Namecheap):
+
+1. Add an **A record**:
+   - **Name:** `spacesearch`
+   - **Value:** the EC2 public IPv4 address (e.g. `3.x.x.x`)
+   - **TTL:** 300 (5 min)
+2. Wait for propagation (usually under 5 minutes with a low TTL)
+3. Verify: `nslookup spacesearch.reddx.me` should return the EC2 IP
+
+> If you use Cloudflare, keep the proxy toggle **off** (grey cloud) while setting up — turn it on later if you want Cloudflare CDN/DDoS protection.
+
+---
+
+### Step 3 — Install Docker on the EC2 instance
+
+SSH into the instance:
+
+```bash
+ssh -i your-key.pem ubuntu@spacesearch.reddx.me
+```
+
+Install Docker and Docker Compose:
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo usermod -aG docker ubuntu
+newgrp docker
+```
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+### Step 4 — Copy the project to the EC2 instance
+
+Either clone from GitHub or `scp` the project:
+
+```bash
+# Option A — clone (if repo is on GitHub)
+git clone https://github.com/<your-org>/Space-Search.git
+cd Space-Search
+
+# Option B — copy from local machine
+scp -i your-key.pem -r /path/to/Space-Search ubuntu@spacesearch.reddx.me:~/
+```
+
+---
+
+### Step 5 — Make the required file changes
+
+These are the only project files that contain the deployment URL and must be updated before building the Docker images.
+
+#### 5a. `nginx.conf` — `server_name`
+
+```nginx
+# Before (local dev)
+server_name localhost;
+
+# After (AWS production)
+server_name spacesearch.reddx.me;
+```
+
+nginx uses `server_name` to match incoming HTTP requests. Without the correct value, browsers may get a 404 or be served the wrong virtual host when the EC2 instance runs multiple sites.
+
+#### 5b. `docker-compose.yml` — two values
+
+**`AIRFLOW__WEBSERVER__BASE_URL`** (line 11, inside `x-airflow-common` environment block):
+
+```yaml
+# Before
+AIRFLOW__WEBSERVER__BASE_URL: 'http://reddx.me/airflow'
+
+# After
+AIRFLOW__WEBSERVER__BASE_URL: 'http://spacesearch.reddx.me/airflow'
+```
+
+Airflow uses this URL to construct redirect links and static asset paths. If it is wrong, the Airflow UI loads broken CSS/JS after nginx proxies it.
+
+**`NEXTAUTH_URL`** (line 79, inside the `neo-app` service environment block):
+
+```yaml
+# Before
+NEXTAUTH_URL: http://reddx.me
+
+# After
+NEXTAUTH_URL: http://spacesearch.reddx.me
+```
+
+NextAuth uses this as the base URL for OAuth callback URLs and CSRF cookie scoping. Mismatched values cause sign-in redirects to fail or cookies to be rejected.
+
+#### 5c. `api-server/app.py` — CORS `allow_origins`
+
+```python
+# Before
+allow_origins=[
+    "http://localhost:3000",
+    "http://localhost",
+    "http://reddx.me",
+    "https://reddx.me",
+]
+
+# After
+allow_origins=[
+    "http://localhost:3000",
+    "http://localhost",
+    "http://reddx.me",
+    "https://reddx.me",
+    "http://spacesearch.reddx.me",
+    "https://spacesearch.reddx.me",
+]
+```
+
+The browser sends the page origin (`http://spacesearch.reddx.me`) in the `Origin` header on every API request. If it is not in this list, FastAPI's CORS middleware rejects the response and the browser blocks it.
+
+#### 5d. `neo-app/.env.example` — `NEXTAUTH_URL` (documentation only)
+
+```env
+# Before
+NEXTAUTH_URL=http://reddx.me
+
+# After
+NEXTAUTH_URL=http://spacesearch.reddx.me
+```
+
+This file is not used at runtime but should match so anyone copying it to `.env` locally gets correct values.
+
+> **Note:** `neo-app/.env` (local dev file) does **not** need to change — it keeps `NEXTAUTH_URL=http://localhost` for local development. The docker-compose `environment:` block overrides it at runtime inside the container.
+
+> **Note:** `NEXT_PUBLIC_API_URL=/api` and `NEXT_PUBLIC_AIRFLOW_URL=/airflow` are already relative paths (fixed in TASK-06) and need no changes — they work on any domain automatically.
+
+---
+
+### Step 6 — Build and start the stack
+
+```bash
+cd ~/Space-Search
+
+# Build all images (neo-app bundle gets baked with the correct env vars)
+docker compose build
+
+# Start all services in the background
+docker compose up -d
+
+# Check all containers are healthy
+docker compose ps
+```
+
+All containers should show **Up** or **healthy**:
+- `neo-database`
+- `neo-nginx`
+- `neo-app`
+- `api-server`
+- `airflow-webserver`
+- `airflow-scheduler`
+
+---
+
+### Step 7 — Verify the deployment
+
+| URL | Expected result |
+|---|---|
+| `http://spacesearch.reddx.me` | Next.js dashboard loads, API status dot turns green |
+| `http://spacesearch.reddx.me/api/` | `{"message":"server is up and running","healthy":true}` |
+| `http://spacesearch.reddx.me/airflow` | Redirects to `/airflow/` — Airflow login page loads |
+| `http://spacesearch.reddx.me/predict` | Prediction form loads and returns results |
+
+---
+
+### Complete diff of all changed lines
+
+| File | Line(s) | Old value | New value |
+|---|---|---|---|
+| `nginx.conf` | 26 | `server_name localhost;` | `server_name spacesearch.reddx.me;` |
+| `docker-compose.yml` | 11 | `'http://reddx.me/airflow'` | `'http://spacesearch.reddx.me/airflow'` |
+| `docker-compose.yml` | 79 | `http://reddx.me` | `http://spacesearch.reddx.me` |
+| `api-server/app.py` | 49–55 | 4 origins | 6 origins (+ spacesearch variants) |
+| `neo-app/.env.example` | 5 | `http://reddx.me` | `http://spacesearch.reddx.me` |
+
+---
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Site unreachable after DNS change | DNS not propagated yet | Wait 5 min, check with `nslookup spacesearch.reddx.me` |
+| Site unreachable — DNS resolves fine | Port 80 blocked by Security Group | Add inbound rule for TCP 80 from 0.0.0.0/0 |
+| Airflow UI loads but CSS is broken | `AIRFLOW__WEBSERVER__BASE_URL` still set to old domain | Update docker-compose.yml and run `docker compose up -d` |
+| Sign-in redirects to wrong URL | `NEXTAUTH_URL` still set to old domain | Update docker-compose.yml and run `docker compose up -d` |
+| API calls fail with CORS error | `spacesearch.reddx.me` not in FastAPI `allow_origins` | Update `api-server/app.py`, rebuild: `docker compose build api-server && docker compose up -d` |
+| `docker compose` command not found | Docker Compose plugin not installed | Run `sudo apt install docker-compose-plugin` |
+| Containers exit immediately | Not enough RAM for ML models | Upgrade to t3.medium (4 GB) or larger |

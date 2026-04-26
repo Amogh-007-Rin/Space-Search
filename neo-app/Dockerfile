@@ -7,9 +7,9 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_URL=/api
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_AIRFLOW_URL=http://localhost/airflow
+ARG NEXT_PUBLIC_AIRFLOW_URL=/airflow
 ENV NEXT_PUBLIC_AIRFLOW_URL=$NEXT_PUBLIC_AIRFLOW_URL
 ENV DATABASE_URL=postgresql://mlops:password123@postgres:5432/mlops
 RUN npx prisma generate
