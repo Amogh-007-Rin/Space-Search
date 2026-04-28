@@ -1,0 +1,19 @@
+{
+  "clf_features": [
+    "log_diameter_avg",
+    "log_diameter_ratio",
+    "log_relative_velocity",
+    "log_miss_distance",
+    "absolute_magnitude",
+    "diameter_avg",
+    "diameter_ratio"
+  ],
+  "reg_features": [
+    "log_diameter_avg",
+    "log_diameter_ratio",
+    "log_relative_velocity",
+    "absolute_magnitude",
+    "diameter_avg",
+    "diameter_ratio"
+  ]
+}

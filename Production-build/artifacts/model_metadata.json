@@ -1,0 +1,46 @@
+{
+  "trained_at": "2026-04-20T15:29:53.885551",
+  "classifier": {
+    "model": "RandomForestClassifier",
+    "selected_from": "RandomForestClassifier",
+    "hyperparams": {},
+    "test_f1_weighted": 0.9057,
+    "test_auc_roc": 0.9218,
+    "test_accuracy": 0.9025
+  },
+  "regressor": {
+    "model": "GradientBoostingRegressor",
+    "selected_from": "GradientBoostingRegressor",
+    "hyperparams": {
+      "n_estimators": 104,
+      "max_depth": 7,
+      "learning_rate": 0.030161928574401243,
+      "min_samples_split": 17,
+      "subsample": 0.9541988490325432,
+      "random_state": 42
+    },
+    "test_r2": 0.1657,
+    "test_rmse_log": 1.0434,
+    "test_rmse_km": 22470463.22
+  },
+  "features": {
+    "clf_features": [
+      "log_diameter_avg",
+      "log_diameter_ratio",
+      "log_relative_velocity",
+      "log_miss_distance",
+      "absolute_magnitude",
+      "diameter_avg",
+      "diameter_ratio"
+    ],
+    "reg_features": [
+      "log_diameter_avg",
+      "log_diameter_ratio",
+      "log_relative_velocity",
+      "absolute_magnitude",
+      "diameter_avg",
+      "diameter_ratio"
+    ]
+  },
+  "pipeline": "dataset_preprocesser \u2192 feature_transformer \u2192 model_training \u2192 final_model_selector \u2192 model_parameter_tunner \u2192 model_extractor"
+}

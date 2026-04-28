@@ -1,0 +1,111 @@
+x-airflow-common:
+  &airflow-common
+  build: ./airflow
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://mlops:password123@postgres/mlops
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__WEBSERVER__BASE_URL: 'http://spacesearch.reddx.me/airflow'
+    AIRFLOW_CONN_NEO_POSTGRES: postgresql://mlops:password123@postgres:5432/mlops
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./Dataset:/opt/airflow/dataset
+    - ./models:/opt/airflow/models
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    container_name: neo-database
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mlops
+      POSTGRES_USER: mlops
+      POSTGRES_PASSWORD: password123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U mlops -d mlops" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/airflow/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+
+  neo-app:
+    build:
+      context: ./neo-app
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_AIRFLOW_URL: /airflow
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://mlops:password123@postgres:5432/mlops
+      NEXTAUTH_SECRET: neo-prediction-mlops-secret-2026
+      NEXTAUTH_URL: http://spacesearch.reddx.me
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-server:
+    build: ./api-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models
+      - ./Dataset:/Dataset
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: neo-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - neo-app
+      - api-server
+      - airflow-webserver
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
