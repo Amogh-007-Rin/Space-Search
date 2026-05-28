@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
+
+const spaceSearch = localFont({
+      src: './fonts/TRAINEX-Demo.woff2'
+});
 
 
 
@@ -10,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={spaceSearch.className}>
       <body className="w-screen h-screen">{children}</body>
     </html>
   );
