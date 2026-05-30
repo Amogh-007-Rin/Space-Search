@@ -7,9 +7,9 @@ interface infoCardProps{
 
 export default function Infocard({label, magnitude, discription, children}: infoCardProps){
     return(
-        <div className="info-card min-w-[15vw] h-full bg-[#100F15] rounded-3xl overflow-hidden">
+        <div className="info-card min-w-[15vw] h-full bg-[#100F15] rounded-2xl overflow-hidden">
             <div className="w-full h-[40%]">
-                <div className="h-full w-[50%] flex items-center px-3">
+                <div className="h-full w-[50%] flex items-center px-2">
                     <div className="h-10 w-10 rounded-xl bg-[#000001]">
                         {children}
                     </div>

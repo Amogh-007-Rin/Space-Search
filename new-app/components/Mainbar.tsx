@@ -1,3 +1,4 @@
+import Astroidcard from "./cards/Astroidcard";
 import Infocard from "./cards/Infocard";
 
 export default function Mainbar(){
@@ -12,7 +13,9 @@ export default function Mainbar(){
                 <Infocard></Infocard>
             </div>
             <div className="section-2 w-full h-[20%]"></div>
-            <div className="section-3 w-full h-[20%]"></div>
+            <div className="section-3 w-full h-[20%]">
+                <Astroidcard></Astroidcard>
+            </div>
         </div>
     );
 };
