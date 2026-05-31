@@ -1,20 +1,7 @@
 import { BACKEND_URL } from "@/api/config";
 import axios from "axios";
 import { useEffect, useState } from "react";
-import { astroidCardData } from "@/types/types";
-
-type NeoApiRecord = {
-    id: number;
-    name: string;
-    relative_velocity: number;
-    miss_distance: number;
-    absolute_magnitude: number;
-};
-
-type NeoApiResponse = {
-    data: NeoApiRecord[];
-};
-
+import { astroidCardData, NeoApiResponse } from "@/types/types";
 
 export default function useAstroidData() {
     const [data, setData] = useState<astroidCardData[]>([]);
@@ -31,12 +18,12 @@ export default function useAstroidData() {
                     setError("Unexpected response from server");
                     setData([]);
                 } else {
-                    const normalized = response.data.data.map((record) => ({
-                        id: record.id,
-                        name: record.name,
-                        velocity: record.relative_velocity,
-                        missDistance: record.miss_distance,
-                        magnitude: record.absolute_magnitude,
+                    const normalized = response.data.data.map((value) => ({
+                        id: value.id,
+                        name: value.name,
+                        velocity: value.relative_velocity,
+                        missDistance: value.miss_distance,
+                        magnitude: value.absolute_magnitude,
                     }));
                     setData(normalized);
                     setError(null);
@@ -54,6 +41,6 @@ export default function useAstroidData() {
     }, []);
 
     return { data, loading, error };
-}
+};
 
 // Custom Hooks Cannot Be Async Functions.
