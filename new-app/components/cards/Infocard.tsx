@@ -1,6 +1,6 @@
 interface infoCardProps{
     label?: string;
-    magnitude?: string;
+    magnitude?: number;
     discription?: string;
     children?: React.ReactNode
 }
