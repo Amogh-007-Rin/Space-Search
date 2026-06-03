@@ -6,12 +6,12 @@ import useInfoCardDataMapper from "@/mappers/infoMapper";
 
 export default function Mainbar() {
     
-    const {data, loading, error} = useInfoCardDataMapper();
+    const {mappedData, loading, error} = useInfoCardDataMapper();
 
     return (
         <div className="main-container w-full h-[93%]">
             <div className="section-1 w-full h-[23%] flex items-center justify-evenly p-4">
-                <Infocard label=" TOTAL NEO's" magnitude={ } discription={ }></Infocard>
+                <Infocard label=" TOTAL NEO's" magnitude={mappedData.totalRecord} discription={ }></Infocard>
                 <Infocard label="HAZARDOUS" magnitude="" discription=""></Infocard>
                 <Infocard label="SAFE" magnitude="" discription=""></Infocard>
                 <Infocard label="AVG VELOCITY" magnitude="" discription=""></Infocard>

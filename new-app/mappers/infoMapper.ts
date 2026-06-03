@@ -11,5 +11,5 @@ export default function useInfoCardDataMapper(){
         velocityMaxKmph: value.velocityMaxKmph,
         missDistanceMinKm: value.missDistanceMinKm,}));
 
-    return {data: mappedData, loading, error};
+    return {mappedData, loading, error};
 }

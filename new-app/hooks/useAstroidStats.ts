@@ -49,3 +49,4 @@ export default function useAstroidStats() {
 
     return { data, loading, error };
 };
+
