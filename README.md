@@ -881,11 +881,11 @@ Full interactive documentation with try-it-out support is available at **[http:/
 | Three.js | 0.184.0 | 3D visualisations |
 | Node.js | 22 (alpine) | Container runtime for Next.js |
 | Framer Motion | 12.38.0 | Animations |
-
+| React three-fiber | 0.184.0 | Animations in 3D |
 ---
 
 <div align="center">
 
-Built with ☕ and a healthy respect for asteroids.
+Built with ☕ and a healthy respect for asteroids. 
 
 </div>
